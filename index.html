@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="stylesheet" href="/src/styles.css" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>RAG Knowledge Libraries</title>
+    <script type="module" src="/src/main.ts" defer></script>
+  </head>
+
+  <body>
+    <main class="container">
+      <h1>Knowledge Libraries</h1>
+
+      <section id="settings">
+        <h2>Connection Settings</h2>
+        <form id="settings-form" class="row">
+          <input id="api-base-url" placeholder="API base URL" />
+          <input id="api-key" placeholder="API key" type="password" />
+          <button type="submit">Save</button>
+        </form>
+        <p id="settings-status"></p>
+      </section>
+
+      <section id="create-library">
+        <h2>Create Library</h2>
+        <form id="create-library-form">
+          <input id="lib-name" placeholder="Name" required />
+          <input id="lib-description" placeholder="Description" />
+          <select id="lib-embedding-model"></select>
+          <input id="lib-chunk-size" type="number" placeholder="Chunk size" />
+          <input id="lib-chunk-overlap" type="number" placeholder="Chunk overlap" />
+          <button type="submit">Create</button>
+        </form>
+        <p id="create-library-status"></p>
+      </section>
+
+      <section id="libraries">
+        <h2>Libraries</h2>
+        <button id="refresh-libraries">Refresh</button>
+        <table id="libraries-table">
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Description</th>
+              <th>Model</th>
+              <th>Docs</th>
+              <th>Chunks</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="libraries-body"></tbody>
+        </table>
+      </section>
+    </main>
+  </body>
+</html>
