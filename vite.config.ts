@@ -12,14 +12,18 @@ export default defineConfig(async () => ({
   clearScreen: false,
   // 2. tauri expects a fixed port, fail if that port is not available
   server: {
-    port: 1420,
+    // Deliberately different from pragna2_desktop_app's port 1420 (also strictPort) so
+    // both apps' `tauri dev` sessions can run at the same time without a port clash.
+    // Uses the 13100 series to keep this app's dev ports clearly distinct from any
+    // other project's (which tend to cluster around Tauri's 1420 default).
+    port: 13100,
     strictPort: true,
     host: host || false,
     hmr: host
       ? {
           protocol: "ws",
           host,
-          port: 1421,
+          port: 13101,
         }
       : undefined,
     watch: {

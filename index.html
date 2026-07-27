@@ -2,56 +2,271 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <!-- Synchronous, runs before any CSS paints: the custom drag-region/collapse-toggle geometry
+         in styles.css is measured against macOS's traffic lights (see that file's comments) and
+         doesn't apply on Windows, which draws its own native titlebar instead. Tagging <html>
+         with platform-windows here lets styles.css scope Windows-only overrides under it without
+         touching any of the unscoped (macOS/default) rules — macOS's layout is untouched either
+         way, since this class is simply never added there. -->
+    <script>
+      if (navigator.userAgent.includes("Windows")) {
+        document.documentElement.classList.add("platform-windows");
+      }
+    </script>
+    <!-- Theme font: Inter, loaded the same way pragna2_desktop_app does — the CSS
+         font-family stack silently falls back to a system font otherwise. -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/src/theme.css" />
     <link rel="stylesheet" href="/src/styles.css" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>RAG Knowledge Libraries</title>
+    <title>Knowledge</title>
     <script type="module" src="/src/main.ts" defer></script>
   </head>
 
   <body>
-    <main class="container">
-      <h1>Knowledge Libraries</h1>
+    <div class="drag-region" data-tauri-drag-region></div>
 
-      <section id="settings">
-        <h2>Connection Settings</h2>
-        <form id="settings-form" class="row">
-          <input id="api-base-url" placeholder="API base URL" />
-          <input id="api-key" placeholder="API key" type="password" />
-          <button type="submit">Save</button>
-        </form>
-        <p id="settings-status"></p>
-      </section>
+    <div class="app-shell">
+      <nav class="sidebar" id="sidebar">
+        <div class="sidebar-section">
+          <button class="sidebar-item active" data-view="knowledge" type="button">
+            <span class="sidebar-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m16 6 4 14"/><path d="M12 6v14"/><path d="M8 8v12"/><path d="M4 4v16"/></svg>
+            </span>
+            <span class="sidebar-label">Knowledge</span>
+          </button>
+        </div>
+        <div class="sidebar-section">
+          <div class="sidebar-section-label">Settings</div>
+          <button class="sidebar-item" data-view="configuration" type="button">
+            <span class="sidebar-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg>
+            </span>
+            <span class="sidebar-label">Configuration</span>
+          </button>
+        </div>
+      </nav>
 
-      <section id="create-library">
-        <h2>Create Library</h2>
-        <form id="create-library-form">
-          <input id="lib-name" placeholder="Name" required />
-          <input id="lib-description" placeholder="Description" />
-          <select id="lib-embedding-model"></select>
-          <input id="lib-chunk-size" type="number" placeholder="Chunk size" />
-          <input id="lib-chunk-overlap" type="number" placeholder="Chunk overlap" />
-          <button type="submit">Create</button>
-        </form>
-        <p id="create-library-status"></p>
-      </section>
+      <button class="collapse-toggle" id="collapse-toggle" type="button" title="Toggle sidebar">
+        <span class="toggle-icon icon-expanded-idle">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="9" y1="3" x2="9" y2="21"/></svg>
+        </span>
+        <span class="toggle-icon icon-expanded-hover">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="9" y1="3" x2="9" y2="21"/><polyline points="10 8 6 12 10 16"/></svg>
+        </span>
+        <span class="toggle-icon icon-collapsed-idle">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="21" y1="6" x2="3" y2="6"/><line x1="15" y1="12" x2="3" y2="12"/><line x1="17" y1="18" x2="3" y2="18"/></svg>
+        </span>
+        <span class="toggle-icon icon-collapsed-hover">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="9" y1="3" x2="9" y2="21"/><polyline points="8 8 12 12 8 16"/></svg>
+        </span>
+      </button>
 
-      <section id="libraries">
-        <h2>Libraries</h2>
-        <button id="refresh-libraries">Refresh</button>
-        <table id="libraries-table">
-          <thead>
-            <tr>
-              <th>Name</th>
-              <th>Description</th>
-              <th>Model</th>
-              <th>Docs</th>
-              <th>Chunks</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody id="libraries-body"></tbody>
-        </table>
-      </section>
-    </main>
+      <main class="content">
+        <section class="page view" id="view-knowledge">
+          <div class="page-header">
+            <div class="page-header-left">
+              <div class="icon-tile tile-teal">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m16 6 4 14"/><path d="M12 6v14"/><path d="M8 8v12"/><path d="M4 4v16"/></svg>
+              </div>
+              <div>
+                <h1>Knowledge</h1>
+                <p class="page-description">Create knowledge libraries, upload documents, and manage embeddings.</p>
+              </div>
+            </div>
+            <button id="new-library-btn" class="btn btn-primary btn-sm">+ New library</button>
+          </div>
+
+          <div id="status-banner"></div>
+
+          <div class="card create-form" id="create-library-card" hidden>
+            <form id="create-library-form" class="form-grid">
+              <label>Name<input id="lib-name" placeholder="e.g. product-docs" required /></label>
+              <label>Description<input id="lib-description" placeholder="Optional description" /></label>
+              <div class="form-actions">
+                <button type="button" class="btn btn-ghost btn-sm" id="cancel-create-library">Cancel</button>
+                <button type="submit" class="btn btn-primary btn-sm">Create</button>
+              </div>
+            </form>
+            <p class="status-text" id="create-library-status"></p>
+          </div>
+
+          <div id="libraries-list"></div>
+        </section>
+
+        <section class="page view" id="view-configuration" hidden>
+          <div class="page-header">
+            <div class="page-header-left">
+              <div class="icon-tile tile-slate">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg>
+              </div>
+              <div>
+                <h1>Configuration</h1>
+                <p class="page-description">Configure your API connection and embeddings provider.</p>
+              </div>
+            </div>
+          </div>
+
+          <div class="card">
+            <button class="card-header" id="connection-card-header" type="button">
+              <span class="chevron" id="connection-chevron">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+              </span>
+              <span class="card-title">Knowledge API</span>
+              <span class="badge" id="connection-badge">Not configured</span>
+            </button>
+            <div class="card-body" id="connection-card-body" hidden>
+              <form id="settings-form" class="form-grid">
+                <label>URL<input id="api-base-url" placeholder="http://localhost:13102" /></label>
+                <label>Client ID<input id="client-id" placeholder="Client ID" /></label>
+                <label id="client-secret-field">Client Secret
+                  <span class="password-field">
+                    <input id="client-secret" placeholder="Client secret" type="password" />
+                    <button type="button" class="password-toggle" id="client-secret-toggle" aria-label="Show password" title="Show password">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.636-7 10-7 10 7 10 7-3.636 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
+                    </button>
+                  </span>
+                </label>
+
+                <div class="form-actions">
+                  <button type="submit" class="btn btn-primary btn-sm" id="settings-save-btn">Save</button>
+                  <button type="button" class="btn btn-ghost btn-sm" id="disconnect-btn" hidden>Disconnect</button>
+                </div>
+              </form>
+              <p class="status-text" id="settings-status"></p>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-header">
+              <button class="card-header-toggle" id="embeddings-card-header" type="button">
+                <span class="chevron" id="embeddings-chevron">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+                </span>
+                <span class="card-title">Embeddings — Voyage</span>
+                <span class="badge" id="embeddings-badge">Not configured</span>
+              </button>
+              <button type="button" class="btn btn-ghost btn-sm" id="voyage-instructions-btn">
+                <span class="btn-icon-inline"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg></span>
+                Instructions
+              </button>
+            </div>
+            <div class="card-body" id="embeddings-card-body" hidden>
+              <p class="status-text" id="embeddings-disabled-hint">Configure your connection above first.</p>
+              <form id="embeddings-form" class="form-grid">
+                <label>Embedding model<span class="select-wrapper"><select id="embed-settings-model" disabled></select></span></label>
+                <p class="dimensions-hint">Dimensions: <span id="embed-settings-dimensions">—</span> (fixed by the deployment)</p>
+                <div class="form-row-2">
+                  <label>Chunk size<input id="embed-settings-chunk-size" type="number" disabled /></label>
+                  <label>Chunk overlap<input id="embed-settings-chunk-overlap" type="number" disabled /></label>
+                </div>
+                <p class="status-text">Applies to every library — chunking happens once, at upload time, using whatever is saved here.</p>
+                <label><span id="embed-settings-api-key-label">API key</span>
+                  <span class="password-field">
+                    <input id="embed-settings-api-key" placeholder="Voyage API key" type="password" disabled />
+                    <button type="button" class="password-toggle" id="embed-settings-api-key-toggle" aria-label="Show password" title="Show password" disabled>
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.636-7 10-7 10 7 10 7-3.636 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
+                    </button>
+                  </span>
+                </label>
+                <p class="status-text">Stored in the database and never shown again once saved.</p>
+                <div class="form-actions">
+                  <button type="button" class="btn btn-ghost btn-sm" id="embeddings-remove-btn" hidden>Remove</button>
+                  <button type="submit" class="btn btn-primary btn-sm" id="embeddings-save-btn" disabled>Save key</button>
+                </div>
+              </form>
+              <p class="status-text" id="embeddings-form-status"></p>
+
+              <div class="field-group">
+                <div class="field-group-label">Search &amp; rerank</div>
+                <p class="status-text">Tunes hybrid retrieval. Defaults work well — change only if you know why.</p>
+                <form id="search-settings-form" class="form-grid">
+                  <label class="checkbox-label">
+                    <input type="checkbox" id="rerank-enabled" disabled />
+                    Re-rank results after fusion
+                  </label>
+                  <label>Rerank model<span class="select-wrapper"><select id="rerank-model" disabled></select></span></label>
+                  <div class="form-row-2">
+                    <label>Dense candidates<input id="dense-k" type="number" min="1" max="100" disabled /></label>
+                    <label>Sparse candidates<input id="sparse-k" type="number" min="1" max="100" disabled /></label>
+                  </div>
+                  <div class="form-row-2">
+                    <label>Rerank candidates<input id="rerank-candidates" type="number" min="1" max="100" disabled /></label>
+                    <label>RRF constant (k)<input id="rrf-k" type="number" min="1" max="1000" disabled /></label>
+                  </div>
+                  <div class="form-actions">
+                    <button type="submit" class="btn btn-primary btn-sm" id="search-settings-save-btn" disabled>Save</button>
+                  </div>
+                </form>
+                <p class="status-text" id="search-settings-status"></p>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <div class="flyout-overlay" id="voyage-instructions-overlay" hidden>
+          <aside class="flyout-panel" id="voyage-instructions-panel">
+            <div class="flyout-header">
+              <h2>Get a free Voyage API key</h2>
+              <button type="button" class="btn btn-icon" id="voyage-instructions-close" aria-label="Close">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+              </button>
+            </div>
+            <p class="flyout-description">
+              Voyage AI provides a free tier that covers embedding and re-ranking — no credit card
+              required. Follow the steps below to get your key.
+            </p>
+            <div class="flyout-steps">
+              <div class="flyout-step">
+                <span class="flyout-step-number">1</span>
+                <div>
+                  <p class="flyout-step-title">Create a free Voyage AI account</p>
+                  <p class="flyout-step-body">Go to <a href="https://dash.voyageai.com" target="_blank" rel="noopener noreferrer">dash.voyageai.com</a> and sign up with your Google or GitHub account (or email). No credit card is asked during sign-up.</p>
+                </div>
+              </div>
+              <div class="flyout-step">
+                <span class="flyout-step-number">2</span>
+                <div>
+                  <p class="flyout-step-title">Open the API Keys page</p>
+                  <p class="flyout-step-body">After signing in, click <strong>API Keys</strong> in the left sidebar (or navigate to <code>dash.voyageai.com/api-keys</code>).</p>
+                </div>
+              </div>
+              <div class="flyout-step">
+                <span class="flyout-step-number">3</span>
+                <div>
+                  <p class="flyout-step-title">Create a new key</p>
+                  <p class="flyout-step-body">Click <strong>Create new secret key</strong>, give it a name (e.g. <em>rag-desktop</em>), then click <strong>Create</strong>. The key starts with <code>pa-</code>.</p>
+                </div>
+              </div>
+              <div class="flyout-step">
+                <span class="flyout-step-number">4</span>
+                <div>
+                  <p class="flyout-step-title">Copy the key immediately</p>
+                  <p class="flyout-step-body">The full key is shown only once. Copy it now — you will not be able to view it again after closing the dialog.</p>
+                </div>
+              </div>
+              <div class="flyout-step">
+                <span class="flyout-step-number">5</span>
+                <div>
+                  <p class="flyout-step-title">Paste it here</p>
+                  <p class="flyout-step-body">Close this panel, expand the <strong>Embeddings — Voyage</strong> card, paste your key into the <strong>API key</strong> field, and click <strong>Save key</strong>. It's stored in the database and never shown again.</p>
+                </div>
+              </div>
+            </div>
+            <div class="flyout-note">
+              <strong>Free tier limits</strong> — Voyage AI's free plan includes 200M embedding tokens and 1M re-ranking tokens per month, more than enough to get started. Upgrade any time from the Voyage AI dashboard if you need higher limits.
+            </div>
+            <div class="flyout-note">
+              <strong>Which model is used?</strong> — rag-desktop defaults to <code>voyage-3</code> for embeddings and <code>rerank-2</code> for re-ranking, both covered by the free tier. You can change the rerank model in the Search &amp; rerank section inside this same card after your key is saved.
+            </div>
+          </aside>
+        </div>
+      </main>
+    </div>
   </body>
 </html>

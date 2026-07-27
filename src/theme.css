@@ -1,0 +1,90 @@
+/* Theme tokens ported directly from pragna2_desktop_app/src/index.css (same OKLCH
+   values, same radius/shadow formulas, same font stack) — kept as plain CSS custom
+   properties since this app has no Tailwind/build-time theme layer.
+
+   This file is deliberately the ONLY place theme values live — colors, radii, shadows,
+   font stack. styles.css (component/layout rules) references these via var(...) and
+   never hardcodes a color or radius itself. To re-theme the app, this is the one file
+   to change. */
+:root {
+  --radius: 0.875rem;
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+
+  --bg: oklch(1 0 0);
+  --fg: oklch(0.2697 0 0);
+  --border: oklch(0.861 0 0);
+  /* Form-control border (shadcn `border-input`) — deliberately lighter/softer than
+     --border, which real pragna2 inputs/selects use instead of the generic border color. */
+  --input: oklch(0.9234 0 0);
+  --ring: var(--primary);
+  --muted-fg: oklch(0.5547 0 0);
+  --secondary-bg: oklch(0.9686 0.0035 247.859);
+  --primary: oklch(0.5296 0.1863 258.1459);
+  --primary-fg: oklch(1 0 0);
+  --destructive: oklch(0.5409 0.2143 28.4788);
+  --destructive-bg: color-mix(in oklch, var(--destructive) 12%, var(--bg));
+  --amber-bg: #fffbeb;
+  --amber-border: #fde68a;
+  --amber-fg: #92400e;
+
+  /* Page-header icon-tile accents — fixed decorative colors (not surface tokens), same in both
+     themes, matching pragna2's per-entity-type icon tile colors. */
+  --tile-fg: #ffffff;
+  --tile-teal: #14b8a6;
+  --tile-slate: #475569;
+
+  --sidebar-bg: oklch(0.9696 0 0);
+  --sidebar-fg: oklch(0.3705 0 0);
+  --sidebar-fg-muted: color-mix(in oklch, var(--sidebar-fg) 70%, transparent);
+  --sidebar-primary: var(--primary);
+  --sidebar-primary-fg: oklch(1 0 0);
+  --sidebar-accent: oklch(0.9498 0.0109 255.0143);
+  --sidebar-hover: color-mix(in oklch, var(--sidebar-accent), var(--sidebar-fg) 12%);
+  --sidebar-border: oklch(0.9234 0 0);
+
+  --shadow-sm: 0px 1px 4px 0px hsl(0 0% 0% / 0.05), 0px 1px 2px -1px hsl(0 0% 0% / 0.05);
+  --shadow-2xl: 0px 1px 4px 0px hsl(0 0% 0% / 0.13);
+  --tracking-normal: 0.0125em;
+
+  font-family: "Inter", "Segoe UI", "Helvetica Neue", sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+  letter-spacing: var(--tracking-normal);
+  color: var(--fg);
+  background-color: var(--bg);
+
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: oklch(0.2376 0 0);
+    --fg: oklch(0.9389 0 0);
+    --border: oklch(0.3705 0 0);
+    --input: oklch(0.3705 0 0);
+    --muted-fg: oklch(0.7244 0 0);
+    --secondary-bg: oklch(0.3211 0 0);
+    --primary: oklch(0.7782 0.1158 252.5545);
+    --primary-fg: oklch(0.2074 0.0625 252.2461);
+    --destructive: oklch(0.5789 0.2217 27.8067);
+    --amber-bg: #332a12;
+    --amber-border: #6b5410;
+    --amber-fg: #f0c869;
+
+    --sidebar-bg: oklch(0.3008 0 0);
+    --sidebar-fg: oklch(0.8845 0 0);
+    --sidebar-primary: oklch(0.7782 0.1158 252.5545);
+    --sidebar-primary-fg: oklch(0.2074 0.0625 252.2461);
+    --sidebar-accent: oklch(0.3211 0 0);
+    --sidebar-border: oklch(0.3411 0 0);
+
+    --shadow-sm: 0px 2px 6px 0px hsl(0 0% 0% / 0.15), 0px 1px 2px -1px hsl(0 0% 0% / 0.15);
+    --shadow-2xl: 0px 2px 6px 0px hsl(0 0% 0% / 0.38);
+  }
+}

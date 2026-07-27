@@ -6,17 +6,29 @@ use tauri::{AppHandle, Manager};
 #[derive(Serialize, Deserialize, Clone)]
 pub struct AppConfig {
     pub api_base_url: String,
-    pub api_key: String,
+    // OAuth2 client_credentials — empty string means "unset" (no Option<T> mixed in).
+    // #[serde(default)] so existing config.json files saved before these fields existed (or
+    // before the now-removed api_key field) still deserialize instead of failing to load.
+    #[serde(default)]
+    pub client_id: String,
+    #[serde(default)]
+    pub client_secret: String,
+    // Persisted once obtained via a client_credentials grant (which requests offline_access) so
+    // the app doesn't need to resend client_secret on every launch — see oauth_client.rs.
+    #[serde(default)]
+    pub refresh_token: String,
 }
 
 impl Default for AppConfig {
     fn default() -> Self {
-        // rag-api's docker-compose maps its own PORT env var (default 8000) to the same host
-        // port, so this is a reasonable local-dev default. api_key has no default and must be
-        // set via the Settings screen before any API call will succeed.
+        // rag-api's docker-compose maps its own PORT env var (default 13102) to the same host
+        // port, so this is a reasonable local-dev default. client_id/client_secret have no
+        // default and must be set via the Settings screen before any API call will succeed.
         AppConfig {
-            api_base_url: "http://localhost:8000".to_string(),
-            api_key: String::new(),
+            api_base_url: "http://localhost:13102".to_string(),
+            client_id: String::new(),
+            client_secret: String::new(),
+            refresh_token: String::new(),
         }
     }
 }

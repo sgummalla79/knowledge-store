@@ -1,133 +1,929 @@
-table {
-  width: 100%;
-  border-collapse: collapse;
-  margin-top: 1em;
+/* Component/layout rules only — every color/radius/shadow value here is a var(...) reference
+   into theme.css, never a literal. theme.css is the single place to change the look. */
+
+* {
+  box-sizing: border-box;
 }
 
-th,
-td {
-  border: 1px solid #ccc;
-  padding: 0.4em 0.6em;
-  text-align: left;
-}
-
-section {
-  margin-bottom: 2em;
-}
-
-.logo.vite:hover {
-  filter: drop-shadow(0 0 2em #747bff);
-}
-
-.logo.typescript:hover {
-  filter: drop-shadow(0 0 2em #2d79c7);
-}
-:root {
-  font-family: Inter, Avenir, Helvetica, Arial, sans-serif;
-  font-size: 16px;
-  line-height: 24px;
-  font-weight: 400;
-
-  color: #0f0f0f;
-  background-color: #f6f6f6;
-
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-  -webkit-text-size-adjust: 100%;
-}
-
-.container {
+html,
+body {
   margin: 0;
-  padding-top: 10vh;
+  height: 100%;
+}
+
+svg {
+  width: 100%;
+  height: 100%;
+}
+
+/* Drag region (native macOS traffic lights sit at x:22 y:28, per tauri.macos.conf.json).
+   Matches pragna2_desktop_app's AppTitleBar exactly: h-7 (28px), z-30. */
+
+.drag-region {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 28px;
+  z-index: 30;
+}
+
+/* App shell */
+
+.app-shell {
   display: flex;
-  flex-direction: column;
-  justify-content: center;
-  text-align: center;
+  height: 100vh;
+  position: relative;
 }
 
-.logo {
-  height: 6em;
-  padding: 1.5em;
-  will-change: filter;
-  transition: 0.75s;
+.sidebar {
+  width: 240px;
+  min-width: 240px;
+  margin: 10px 8px 10px 10px;
+  padding: 40px 8px 8px;
+  border-radius: var(--radius-md);
+  background: var(--sidebar-bg);
+  border: 1px solid var(--sidebar-border);
+  box-shadow: var(--shadow-sm);
+  color: var(--sidebar-fg);
+  overflow-y: auto;
+  position: relative;
+  z-index: 2;
+  transition: opacity 150ms ease, visibility 150ms ease;
 }
 
-.logo.tauri:hover {
-  filter: drop-shadow(0 0 2em #24c8db);
+.sidebar.collapsed {
+  position: fixed;
+  top: 0;
+  left: 0;
+  margin: 10px;
+  z-index: 30;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  box-shadow: var(--shadow-2xl);
 }
 
-.row {
+.sidebar.collapsed.flyout-visible {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+}
+
+.sidebar-section {
+  margin-bottom: 16px;
+}
+
+.sidebar-section-label {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--sidebar-fg-muted);
+  padding: 8px 12px 2px;
+}
+
+.sidebar-item {
   display: flex;
-  justify-content: center;
-}
-
-a {
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  height: 32px;
+  padding: 0 12px;
+  border-radius: var(--radius-md);
+  border: none;
+  background: transparent;
+  color: var(--sidebar-fg-muted);
+  font: inherit;
+  font-size: 13px;
   font-weight: 500;
-  color: #646cff;
-  text-decoration: inherit;
+  text-align: left;
+  cursor: pointer;
+  box-shadow: none;
+  transition: background-color 150ms ease, color 150ms ease;
+  -webkit-app-region: no-drag;
 }
 
-a:hover {
-  color: #535bf2;
+.sidebar-item:hover {
+  background: var(--sidebar-hover);
+  color: var(--sidebar-fg);
+}
+
+.sidebar-item.active {
+  background: var(--sidebar-primary);
+  color: var(--sidebar-primary-fg);
+  font-weight: 600;
+}
+
+.sidebar-icon {
+  width: 16px;
+  height: 16px;
+  min-width: 16px;
+  display: inline-flex;
+}
+
+/* Collapse toggle: fixed at TITLEBAR_TOGGLE_LEFT_PX (86) and TRAFFIC_LIGHT_Y (28) minus
+   pragna2's TITLEBAR_TOGGLE_Y_NUDGE_PX (-1.25), z-[70] — exact match to
+   pragna2_desktop_app's TitlebarCollapseToggle.tsx. z-70 must clear the drag-region's z-30. */
+
+.collapse-toggle {
+  position: fixed;
+  left: 86px;
+  top: 26.75px;
+  transform: translateY(-50%);
+  width: 24px;
+  height: 24px;
+  padding: 4px;
+  border-radius: var(--radius-sm);
+  border: none;
+  background: transparent;
+  color: var(--sidebar-fg-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 70;
+  box-shadow: none;
+  -webkit-app-region: no-drag;
+}
+
+.collapse-toggle:hover {
+  background: var(--secondary-bg);
+  color: var(--fg);
+}
+
+.collapse-toggle .toggle-icon {
+  display: none;
+  width: 14px;
+  height: 14px;
+}
+
+.collapse-toggle:not(.state-collapsed) .icon-expanded-idle {
+  display: inline-flex;
+}
+
+.collapse-toggle:not(.state-collapsed):hover .icon-expanded-idle {
+  display: none;
+}
+
+.collapse-toggle:not(.state-collapsed):hover .icon-expanded-hover {
+  display: inline-flex;
+}
+
+.collapse-toggle.state-collapsed .icon-collapsed-idle {
+  display: inline-flex;
+}
+
+.collapse-toggle.state-collapsed:hover .icon-collapsed-idle {
+  display: none;
+}
+
+.collapse-toggle.state-collapsed:hover .icon-collapsed-hover {
+  display: inline-flex;
+}
+
+/* Windows-only overrides (see index.html's <head> script for how platform-windows gets added).
+   Windows draws its own native titlebar — decorations default to on there since titleBarStyle/
+   trafficLightPosition in tauri.conf.json only apply on macOS — so the custom drag strip and the
+   traffic-light-relative collapse-toggle offset below have nothing to clear and would otherwise
+   just leave dead space and a stray floating button. Everything above stays exactly as-is for
+   macOS; these rules only ever match when platform-windows is present. */
+
+html.platform-windows .drag-region {
+  display: none;
+}
+
+html.platform-windows .sidebar {
+  padding-top: 8px;
+}
+
+html.platform-windows .collapse-toggle {
+  left: 16px;
+  top: 20px;
+}
+
+.content {
+  flex: 1;
+  overflow-y: auto;
+  position: relative;
+  z-index: 2;
+}
+
+.view[hidden] {
+  display: none;
+}
+
+.page {
+  max-width: 56rem;
+  margin: 0 auto;
+  padding: 2rem 1.5rem 4rem;
+}
+
+.page-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: 1.5rem;
+  gap: 1rem;
+}
+
+.page-header-left {
+  display: flex;
+  gap: 12px;
+}
+
+.icon-tile {
+  width: 36px;
+  height: 36px;
+  min-width: 36px;
+  padding: 8px;
+  border-radius: var(--radius-md);
+  color: var(--tile-fg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.tile-teal {
+  background: var(--tile-teal);
+}
+
+.tile-slate {
+  background: var(--tile-slate);
 }
 
 h1 {
-  text-align: center;
+  font-size: 24px;
+  font-weight: 700;
+  margin: 0;
+  text-align: left;
 }
 
-input,
-button {
-  border-radius: 8px;
-  border: 1px solid transparent;
-  padding: 0.6em 1.2em;
-  font-size: 1em;
-  font-weight: 500;
-  font-family: inherit;
-  color: #0f0f0f;
-  background-color: #ffffff;
-  transition: border-color 0.25s;
-  box-shadow: 0 2px 2px rgba(0, 0, 0, 0.2);
+.page-description {
+  margin: 6px 0 0;
+  color: var(--muted-fg);
+  font-size: 14px;
 }
 
-button {
+/* Cards */
+
+/* Verified against pragna2's real Knowledge/Embeddings screens (KnowledgeView.tsx,
+   KnowledgeLibraryCard.tsx, EmbeddingKeySection.tsx) — every one of them is a
+   hand-rolled `rounded-lg border border-border` section, NOT the generic shadcn
+   Card primitive (which uses rounded-xl + a ring instead of a solid border).
+   This is the actual pattern rag-desktop's cards should match. */
+.card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  margin-bottom: 1rem;
+  background: var(--bg);
+}
+
+.card-header {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  background: none;
+  border: none;
   cursor: pointer;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  box-shadow: none;
 }
 
-button:hover {
-  border-color: #396cd8;
-}
-button:active {
-  border-color: #396cd8;
-  background-color: #e8e8e8;
+.card-header:hover {
+  border-color: transparent;
 }
 
+/* Inner clickable toggle for a header that also has a non-toggle action next to it (e.g. the
+   Embeddings card's "Instructions" button) — .card-header becomes a plain flex container (div)
+   and this is the actual button, so the two don't nest inside one another. */
+.card-header-toggle {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  box-shadow: none;
+}
+
+.card-header-static {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+}
+
+.chevron {
+  display: inline-flex;
+  width: 16px;
+  height: 16px;
+  color: var(--muted-fg);
+  transition: transform 0.15s ease;
+}
+
+.chevron.open {
+  transform: rotate(90deg);
+}
+
+.card-title {
+  font-size: 14px;
+  font-weight: 600;
+  flex: 1;
+}
+
+.card-body {
+  border-top: 1px solid var(--border);
+  padding: 16px;
+}
+
+/* .card provides border/radius only, no padding — cards with a header (.card-header +
+   .card-body) get their padding from .card-body. The create-library card has no header, so
+   without this its form/buttons/status-text render flush against the rounded border (the bug:
+   status text at the bottom visually collided with the corner curve). */
+.create-form {
+  padding: 16px;
+}
+
+/* Badges */
+
+.badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 500;
+  background: var(--secondary-bg);
+  color: var(--fg);
+  white-space: nowrap;
+}
+
+.badge-destructive {
+  background: var(--destructive-bg);
+  color: var(--destructive);
+}
+
+/* Buttons */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border-radius: var(--radius-lg);
+  border: 1px solid transparent;
+  font-family: inherit;
+  font-weight: 500;
+  cursor: pointer;
+  box-shadow: none;
+  transition: background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease, transform 0.1s ease;
+}
+
+.btn:focus-visible {
+  border-color: var(--ring);
+  box-shadow: 0 0 0 3px color-mix(in oklch, var(--ring) 50%, transparent);
+}
+
+.btn:active {
+  transform: translateY(1px);
+}
+
+.btn-sm {
+  height: 28px;
+  padding: 0 12px;
+  font-size: 13px;
+}
+
+.btn-primary {
+  background: var(--primary);
+  color: var(--primary-fg);
+}
+
+/* shadcn dims the primary button on hover (bg-primary/80) rather than brightening it. */
+.btn-primary:hover {
+  background: color-mix(in oklch, var(--primary) 80%, transparent);
+}
+
+.btn-ghost {
+  background: transparent;
+  color: var(--fg);
+  border-color: var(--border);
+}
+
+.btn-ghost:hover {
+  background: var(--secondary-bg);
+}
+
+/* pragna2's delete-library action is a ConfirmButton size="icon" — the shadcn
+   default icon size (size-8 = 32px), not the smaller icon-sm (28px). */
+.btn-icon {
+  width: 32px;
+  height: 32px;
+  padding: 8px;
+  background: transparent;
+  border-color: transparent;
+  color: var(--muted-fg);
+  border-radius: var(--radius-sm);
+}
+
+/* A bare <svg> as a flex child with no size constraint inherits the global `svg { width:100%;
+   height:100% }` rule against the flex row's available space, not the icon's own intended size —
+   it stretches to fill the button (exactly the "Instructions" button rendering bug). Every
+   icon-plus-text button needs this fixed-size wrapper, same as .chevron/.sidebar-icon/etc. */
+.btn-icon-inline {
+  display: inline-flex;
+  width: 14px;
+  height: 14px;
+  min-width: 14px;
+}
+
+.btn-icon:hover {
+  background: var(--destructive-bg);
+  color: var(--destructive);
+  border-color: transparent;
+}
+
+/* Forms */
+
+.form-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* Verified against pragna2's real Label component (text-sm leading-none
+   font-medium, inheriting the full-contrast foreground color) — rag-desktop's
+   labels were previously small (12px) muted captions, which is why they read
+   as low-contrast/thin next to pragna2's actual bold-reading labels. */
+.form-grid label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--fg);
+  text-align: left;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.form-row-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+/* Sub-section within a card body (e.g. "Search & rerank" nested under the Embeddings card,
+   matching pragna2's KnowledgeSettingsFields nested inside EmbeddingKeySection). */
+.field-group {
+  border-top: 1px solid var(--border);
+  padding-top: 16px;
+  margin-top: 16px;
+}
+
+.field-group-label {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted-fg);
+  margin-bottom: 6px;
+}
+
+.checkbox-label {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--fg);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+/* The generic `input { border-radius / border / padding / min-height }` rule below is meant for
+   text/select/number fields — a checkbox needs its own reset, or it inherits a 32px-tall,
+   heavily-padded, 14px-rounded box that renders as a flat, mis-shaped square. */
+.checkbox-label input[type="checkbox"] {
+  min-height: 0;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border-radius: 4px;
+  accent-color: var(--primary);
+}
+
+.dimensions-hint {
+  font-size: 12px;
+  color: var(--muted-fg);
+  margin: -2px 0 0;
+}
+
+/* Matches pragna2's real Input/Select components: rounded-lg (not the smaller
+   radius-sm rag-desktop had before), border-input (a softer border than the
+   generic --border), h-8 (32px), text-sm. */
 input,
-button {
+select,
+textarea {
+  min-height: 32px;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--input);
+  padding: 4px 10px;
+  font-size: 14px;
+  font-family: inherit;
+  color: var(--fg);
+  background-color: var(--bg);
   outline: none;
+  /* Labels are uppercased via text-transform (not the underlying text) — explicitly reset it
+     here so that doesn't cascade into typed values, placeholders, or <option> text. */
+  text-transform: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
-#greet-input {
-  margin-right: 5px;
+/* The OS's native select arrow doesn't match pragna2's clean single chevron-down (and looks
+   inconsistent across platforms) — hide it and draw our own via a positioned wrapper, since a
+   <select> can't host a ::after itself. */
+select {
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  width: 100%;
+  padding-right: 32px;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    color: #f6f6f6;
-    background-color: #2f2f2f;
-  }
+.select-wrapper {
+  position: relative;
+  display: block;
+}
 
-  a:hover {
-    color: #24c8db;
-  }
+.select-wrapper::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  right: 10px;
+  width: 16px;
+  height: 16px;
+  transform: translateY(-50%);
+  pointer-events: none;
+  background-color: var(--muted-fg);
+  mask: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>')
+    center / contain no-repeat;
+  -webkit-mask: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>')
+    center / contain no-repeat;
+}
 
-  input,
-  button {
-    color: #ffffff;
-    background-color: #0f0f0f98;
-  }
-  button:active {
-    background-color: #0f0f0f69;
-  }
+.select-wrapper:has(select:disabled)::after {
+  opacity: 0.5;
+}
+
+/* shadcn only rings on keyboard focus (focus-visible), not on a mouse click —
+   matching that avoids a ring flashing on every click, which :focus alone would do. */
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  border-color: var(--ring);
+  box-shadow: 0 0 0 3px color-mix(in oklch, var(--ring) 50%, transparent);
+}
+
+input:disabled,
+select:disabled,
+textarea:disabled {
+  background-color: color-mix(in oklch, var(--input) 50%, var(--bg));
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+/* Password field — mirrors pragna2's PasswordInput (an Input with a show/hide
+   eye toggle absolutely positioned inside the field). */
+.password-field {
+  position: relative;
+  display: block;
+}
+
+.password-field input {
+  padding-right: 36px;
+  width: 100%;
+}
+
+.password-toggle {
+  position: absolute;
+  inset-block: 0;
+  right: 0;
+  width: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  padding: 0;
+  color: var(--muted-fg);
+  cursor: pointer;
+  box-shadow: none;
+}
+
+.password-toggle svg {
+  width: 16px;
+  height: 16px;
+}
+
+.password-toggle:hover {
+  color: var(--fg);
+}
+
+.password-toggle:disabled {
+  pointer-events: none;
+  opacity: 0.5;
+}
+
+.form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.status-text {
+  font-size: 12px;
+  color: var(--muted-fg);
+  min-height: 1em;
+  margin: 8px 0 0;
+}
+
+/* Library cards */
+
+.library-card .card-header {
+  gap: 10px;
+}
+
+.library-meta {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.library-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.doc-list {
+  list-style: none;
+  margin: 0 0 12px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.doc-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+}
+
+.doc-row:hover {
+  background: var(--secondary-bg);
+}
+
+.doc-icon {
+  width: 28px;
+  height: 28px;
+  min-width: 28px;
+  padding: 6px;
+  border-radius: var(--radius-sm);
+  background: var(--secondary-bg);
+  color: var(--muted-fg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.doc-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.doc-name {
+  font-weight: 600;
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.doc-sub {
+  font-size: 12px;
+  color: var(--muted-fg);
+}
+
+/* pragna2's real empty state (KnowledgeView.tsx) has no border at all — just
+   generous vertical padding (py-16) around centered, muted text. */
+.empty-state {
+  padding: 48px 16px;
+  text-align: center;
+  color: var(--muted-fg);
+  font-size: 13px;
+}
+
+.dropzone {
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-md);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  color: var(--muted-fg);
+  font-size: 13px;
+}
+
+.dropzone .dropzone-icon {
+  width: 22px;
+  height: 22px;
+}
+
+.dropzone:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.upload-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+/* Status banners (Knowledge page: connection/embeddings state) */
+
+.banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: var(--radius-md);
+  font-size: 13px;
+  margin-bottom: 1rem;
+}
+
+.banner-warning {
+  background: var(--amber-bg);
+  border: 1px solid var(--amber-border);
+  color: var(--amber-fg);
+}
+
+.banner-icon {
+  width: 18px;
+  height: 18px;
+  min-width: 18px;
+  margin-top: 1px;
+}
+
+.banner-link {
+  background: none;
+  border: none;
+  padding: 0;
+  color: inherit;
+  text-decoration: underline;
+  font: inherit;
+  cursor: pointer;
+  box-shadow: none;
+}
+
+/* Voyage instructions flyout — a right-anchored slide-in panel (mirrors pragna2's
+   VoyageInstructionsSheet, which is a Radix Sheet; this app has no such primitive, so it's a
+   plain fixed overlay + panel with a CSS transform transition). */
+
+.flyout-overlay {
+  position: fixed;
+  inset: 0;
+  background: color-mix(in oklch, black 40%, transparent);
+  z-index: 200;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.2s ease, visibility 0.2s ease;
+}
+
+.flyout-overlay.open {
+  opacity: 1;
+  visibility: visible;
+}
+
+.flyout-panel {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(420px, 100%);
+  background: var(--bg);
+  border-left: 1px solid var(--border);
+  box-shadow: var(--shadow-2xl);
+  padding: 20px;
+  overflow-y: auto;
+  transform: translateX(100%);
+  transition: transform 0.2s ease;
+}
+
+.flyout-overlay.open .flyout-panel {
+  transform: translateX(0);
+}
+
+.flyout-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.flyout-header h2 {
+  font-size: 16px;
+  font-weight: 700;
+  margin: 0;
+}
+
+.flyout-description {
+  margin: 8px 0 0;
+  font-size: 13px;
+  color: var(--muted-fg);
+}
+
+.flyout-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  margin: 24px 0;
+}
+
+.flyout-step {
+  display: flex;
+  gap: 12px;
+}
+
+.flyout-step-number {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  min-width: 24px;
+  border-radius: 999px;
+  background: var(--primary);
+  color: var(--primary-fg);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.flyout-step-title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.flyout-step-body {
+  margin: 4px 0 0;
+  font-size: 13px;
+  color: var(--muted-fg);
+}
+
+.flyout-step-body a {
+  color: var(--primary);
+}
+
+.flyout-step-body code {
+  font-family: monospace;
+  font-size: 12px;
+}
+
+.flyout-note {
+  border-radius: var(--radius-md);
+  background: var(--secondary-bg);
+  padding: 12px 14px;
+  font-size: 12px;
+  color: var(--fg);
+  margin-bottom: 12px;
+}
+
+.flyout-note code {
+  font-family: monospace;
 }
