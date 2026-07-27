@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "tauri-app",
+  "productName": "Knowledge Store",
   "version": "0.1.0",
   "identifier": "com.sgummalla.tauri-app",
   "build": {
@@ -13,7 +13,7 @@
     "withGlobalTauri": true,
     "windows": [
       {
-        "title": "Knowledge",
+        "title": "Knowledge Store",
         "width": 1100,
         "height": 760,
         "minWidth": 720,
