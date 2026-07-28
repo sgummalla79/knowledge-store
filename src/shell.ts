@@ -2,7 +2,9 @@
  * App shell: window chrome + navigation, independent of any page's business logic.
  *
  * Owns exactly two things:
- *  - Sidebar nav → view switching (which `.view` section is visible)
+ *  - Sidebar nav → view switching (which `.view` section is visible), announced via a
+ *    `view-changed` CustomEvent on `document` so page-specific code (main.ts) can react without
+ *    this module needing to know what any given view actually does.
  *  - The collapse/expand toggle next to the traffic lights, including its
  *    collapsed-state hover flyout
  *
@@ -27,6 +29,7 @@ function initSidebarNav() {
       document.querySelectorAll<HTMLElement>(".view").forEach((view) => {
         view.hidden = view.id !== `view-${targetView}`;
       });
+      document.dispatchEvent(new CustomEvent("view-changed", { detail: { view: targetView } }));
     });
   });
 }

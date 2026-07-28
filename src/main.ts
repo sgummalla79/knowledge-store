@@ -98,6 +98,8 @@ const ICONS = {
 };
 
 const connectionBadge = document.querySelector<HTMLSpanElement>("#connection-badge")!;
+const connectionRefreshButton = document.querySelector<HTMLButtonElement>("#connection-refresh-btn")!;
+const connectionRefreshIcon = document.querySelector<HTMLSpanElement>("#connection-refresh-icon")!;
 const settingsForm = document.querySelector<HTMLFormElement>("#settings-form")!;
 const apiBaseUrlInput = document.querySelector<HTMLInputElement>("#api-base-url")!;
 const clientIdInput = document.querySelector<HTMLInputElement>("#client-id")!;
@@ -771,14 +773,12 @@ function pollJob(library: Library, jobId: string, statusEl: HTMLParagraphElement
   }, 1500);
 }
 
-async function init() {
-  initShell();
-  initAccordion("connection-card-header", "connection-card-body", "connection-chevron");
-  initAccordion("embeddings-card-header", "embeddings-card-body", "embeddings-chevron");
-  initPasswordToggle("client-secret", "client-secret-toggle");
-  initPasswordToggle("embed-settings-api-key", "embed-settings-api-key-toggle");
-  initFlyout(voyageInstructionsButton, voyageInstructionsOverlay, voyageInstructionsClose);
-  const config = await loadSettingsIntoForm();
+// Re-runs the full connection/embeddings/search-settings load, same sequence as startup. Used
+// by: the manual refresh button, opening the Configuration tab, and init() itself — there's
+// otherwise no way to recover from "app started before the API container did" short of a
+// restart, since everything below only ever ran once, at launch.
+async function refreshConnection() {
+  const config = await invoke<AppConfig>("get_config");
   // Skip embeddings-related calls entirely until the connection itself is configured — otherwise
   // they'd just fail with a confusing "Invalid or missing credentials" before the user has done anything.
   if (hasCredentials(config)) {
@@ -788,6 +788,37 @@ async function init() {
     await loadSearchSettingsIntoForm();
   }
   await checkStatusAndLoad();
+}
+
+connectionRefreshButton.addEventListener("click", async () => {
+  connectionRefreshButton.disabled = true;
+  connectionRefreshIcon.classList.add("spinning");
+  try {
+    await refreshConnection();
+  } finally {
+    connectionRefreshButton.disabled = false;
+    connectionRefreshIcon.classList.remove("spinning");
+  }
+});
+
+// Dispatched by shell.ts on every sidebar nav switch — re-check the connection whenever the
+// Configuration tab is opened, so the common case (start the API container, then come look at
+// Configuration) self-heals without needing the manual refresh button.
+document.addEventListener("view-changed", (event) => {
+  if ((event as CustomEvent<{ view: string }>).detail.view === "configuration") {
+    refreshConnection();
+  }
+});
+
+async function init() {
+  initShell();
+  initAccordion("connection-card-header", "connection-card-body", "connection-chevron");
+  initAccordion("embeddings-card-header", "embeddings-card-body", "embeddings-chevron");
+  initPasswordToggle("client-secret", "client-secret-toggle");
+  initPasswordToggle("embed-settings-api-key", "embed-settings-api-key-toggle");
+  initFlyout(voyageInstructionsButton, voyageInstructionsOverlay, voyageInstructionsClose);
+  await loadSettingsIntoForm();
+  await refreshConnection();
 }
 
 init();
