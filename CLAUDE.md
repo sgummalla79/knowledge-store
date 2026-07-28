@@ -1,24 +1,108 @@
 # Knowledge Store Project Instructions
 
+## What this project is
+
+A Tauri (Rust backend + vanilla TypeScript frontend, no framework) desktop app for managing
+knowledge libraries against **knowledge-api** — create libraries, upload documents, configure the
+embeddings provider, and browse everything. It authenticates to knowledge-api as a registered
+OAuth2 Application (see knowledge-api's CLAUDE.md for the auth model), the same way the MCP server
+does, just with a broader scope since this is the admin/management UI, not a narrow search client.
+
+Key modules: `src/main.ts` (all page logic/DOM wiring), `src/shell.ts` (window chrome + sidebar
+nav, deliberately decoupled from page logic — announces view switches via a `view-changed`
+CustomEvent rather than knowing what any page does), `src-tauri/src/oauth_client.rs` (token
+cache/refresh logic), `src-tauri/src/api_client.rs` (Tauri commands, one per knowledge-api
+endpoint, all routed through a shared `send_with_retry` helper for auth-header + retry-on-401),
+`src-tauri/src/config.rs` (`config.json` read/write via Tauri's `app_config_dir()`).
+
+## Session history — what's been built (in build order)
+
+1. **Base app** (first commit): library CRUD, document upload, embeddings settings, static
+   `API_KEY` auth via a header field in the Connection card.
+2. **OAuth2 client auth** (`oauth_client.rs`, new): replaced the static API key entirely.
+   `authenticate` Tauri command runs a `client_credentials` exchange (requesting
+   `KNOWLEDGE_STORE_SCOPE` — effectively the full scope set, since this is the admin UI) the
+   moment the Connection form is saved, rather than waiting for the first incidental API call to
+   trigger it. Access token cached in memory (`TokenState`, cleared on restart); refresh token
+   persisted to `config.json` since `offline_access` is always requested. `send_with_retry`
+   invalidates the cached token and retries once on an unexpected 401.
+3. **Connection UI reworked around this**: Client ID/Secret fields replace the old API Key field;
+   once a connection is verified working (not just saved — actually round-tripped through
+   `list_libraries`), the Client Secret field disappears (it's write-only, never re-displayed —
+   matches knowledge-api's own "shown once" convention) and a **Disconnect** button appears
+   (clears credentials + cached token via a `disconnect` command, returns to "not configured").
+4. **Windows titlebar fix**: the custom drag-region/collapse-toggle CSS was hardcoded against
+   macOS's overlay-titlebar traffic-light geometry. A synchronous UA-sniff script in `index.html`
+   (before first paint) tags `<html>` with `platform-windows`, and `styles.css` scopes
+   Windows-only overrides under that class — macOS's layout is completely unaffected since the
+   class is simply never added there.
+5. **Create-library form simplified**: removed the per-library embedding-model/chunk-size/
+   chunk-overlap fields (now just Name/Description), matching knowledge-api's move to
+   global-only chunking/embedding config (its migration `0005`). Those settings now live in the
+   Embeddings card instead.
+6. **Rebranded rag-desktop → Knowledge Store**: `productName`/window title/`package.json`/
+   `Cargo.toml` names, and the repo directory itself, all renamed. The Tauri **bundle identifier**
+   (`com.sgummalla.tauri-app`) was deliberately left unchanged — see that section below, don't
+   "finish the rename" by changing it.
+7. **App icon**: book-stack image, iterated through several backgrounds (white tile → black tile
+   → white rounded tile → fully transparent) before landing on genuinely transparent, near-full-
+   bleed — see the icon section below for what was actually learned along the way (worth reading
+   before touching the icon again, several attempts silently regressed earlier fixes).
+8. **Connection refresh button**: a manual retry (spinning icon, next to the Knowledge API badge)
+   plus auto-refresh whenever the Configuration tab is opened — solves "I started the desktop app
+   before the API's Docker container, and there was no way to reconnect short of a full restart."
+   Both reuse one `refreshConnection()` (replacing logic that used to only run once, in `init()`).
+
+## Not yet done / things to know for next session
+
+- No Application is necessarily registered/connected as of end-of-session — if the Connection
+  card shows "Not configured," register an application in knowledge-api's `/dashboard` (broad
+  scope, e.g. everything except leave `offline_access` on) and paste its client_id/secret in.
+- This app has **only ever been tested as a locally-built macOS `.app`**, launched via `npm run
+  tauri build -- --bundles app` (not the default `npm run tauri build`, which also builds a DMG —
+  see the LaunchServices note below for why that matters) or via `cargo tauri dev`. It has not
+  been built or tested on Windows — the Windows titlebar fix (item 4 above) is implemented and
+  type-checked but unverified on real Windows.
+- If icon/Dock weirdness comes up again, check the troubleshooting order below **before**
+  reaching for cache-clearing commands — the actual cause has twice now been a stale running
+  process (`cargo tauri dev` or an old release build) rather than anything wrong with the built
+  bundle itself.
+
 ## App icon: how it's generated
 
-The icon source is a book-stack image composited onto a full-bleed white tile with the
-rounded-squircle shape baked directly into the PNG before generating the icon set. **macOS does
-NOT auto-round arbitrary square app icons** — that's a common wrong assumption. The OS only
-applies its own shadow/rounding treatment in narrow contexts; a plain square source will show
-with hard corners in Finder/Dock. The rounding must be baked into the source image itself,
-matching Apple's Big Sur icon template (corner radius ≈ 18.1% of the canvas, e.g. ~185px on a
-1024px canvas).
+**Current approach: genuinely transparent background, no tile.** The icon source is the
+book-stack artwork alone, composited onto a fully transparent 1024x1024 canvas with **no fill
+color anywhere** — verify with `img.getpixel((5,5))` on the generated PNG; it must read
+`(0, 0, 0, 0)`, not `(255, 255, 255, 255)`.
 
-To regenerate from a new source image:
-1. Composite the artwork onto a 1024x1024 canvas: background fills edge-to-edge, artwork itself
-   inset to roughly 60-65% of the canvas (safe zone) so it doesn't look oversized/zoomed-in next
-   to other apps' icons.
-2. Cut a rounded-rect alpha mask into the whole composited tile (radius ≈ 18% of canvas) so the
-   corners are transparent, not just the background color.
-3. Run `npx tauri icon <path-to-1024-source.png>` from the repo root.
-4. **Delete the iOS/Android assets it generates** — this project is desktop-only:
+Two things learned the hard way while landing on this:
+
+- **Centering must account for the source's drop shadow.** The clipart's shadow is soft/low-alpha
+  and extends further right+down than left+up, so naively centering the full image's bounding box
+  visually shifts the *books* off-center. Fix: threshold the alpha channel (`alpha > 120`) to find
+  the bbox of the solid artwork only, compute its center, then paste the **full** original image
+  (shadow included, for depth) offset so that computed center lands on the canvas center — not
+  the naive full-image-bbox center.
+- **The glyph must be sized close to full-bleed (~90-92% of the canvas) or macOS auto-inserts its
+  own white backing plate.** A smaller glyph with generous transparent margin around it reads to
+  macOS as "not a complete icon," and it silently composites a white rounded-square plate behind
+  it — which looks identical to the icon just having a white background again, defeating the
+  point. This is *not* controllable from the source file once triggered; the fix is making the
+  source full-bleed enough that macOS has no margin to insert a plate into.
+
+(An earlier iteration baked a **white** rounded-rect tile directly into the source, with the
+squircle shape cut in via an alpha mask at ~18.1% corner radius, matching Apple's Big Sur
+template — since macOS does *not* auto-round arbitrary square icons on its own. That approach is
+still valid if a white/colored tile is ever wanted again; it's just not what's currently shipped.)
+
+To regenerate from a new source image (current transparent approach):
+1. Composite the artwork onto a fully transparent 1024x1024 canvas at ~90-92% fill, centered on
+   the solid-artwork bbox (see above), not the naive image bbox.
+2. Run `npx tauri icon <path-to-1024-source.png>` from the repo root.
+3. **Delete the iOS/Android assets it generates** — this project is desktop-only:
    `rm -rf src-tauri/icons/android src-tauri/icons/ios src-tauri/gen`.
+4. Verify before rebuilding: check a corner pixel and an edge-midpoint pixel of the generated
+   `icon.png` are both `(0, 0, 0, 0)` — confirms no fill snuck back in.
 
 ## Troubleshooting "the Dock icon isn't updating"
 
