@@ -271,7 +271,7 @@ h1 {
    KnowledgeLibraryCard.tsx, EmbeddingKeySection.tsx) — every one of them is a
    hand-rolled `rounded-lg border border-border` section, NOT the generic shadcn
    Card primitive (which uses rounded-xl + a ring instead of a solid border).
-   This is the actual pattern rag-desktop's cards should match. */
+   This is the actual pattern Knowledge Store's cards should match. */
 .card {
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
@@ -463,7 +463,7 @@ h1 {
 }
 
 /* Verified against pragna2's real Label component (text-sm leading-none
-   font-medium, inheriting the full-contrast foreground color) — rag-desktop's
+   font-medium, inheriting the full-contrast foreground color) — Knowledge Store's
    labels were previously small (12px) muted captions, which is why they read
    as low-contrast/thin next to pragna2's actual bold-reading labels. */
 .form-grid label {
@@ -532,7 +532,7 @@ h1 {
 }
 
 /* Matches pragna2's real Input/Select components: rounded-lg (not the smaller
-   radius-sm rag-desktop had before), border-input (a softer border than the
+   radius-sm Knowledge Store had before), border-input (a softer border than the
    generic --border), h-8 (32px), text-sm. */
 input,
 select,

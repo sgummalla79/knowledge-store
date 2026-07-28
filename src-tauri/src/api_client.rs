@@ -80,7 +80,7 @@ pub fn disconnect(app: AppHandle, tokens: State<'_, TokenState>) -> Result<(), S
 
 /// Called right after the Connection form is saved: forces a fresh OAuth2 exchange (invalidating
 /// any cached token from previously-saved credentials) so the access token — and, since
-/// oauth_client's RAG_DESKTOP_SCOPE always includes offline_access, a refresh token — are
+/// oauth_client's KNOWLEDGE_STORE_SCOPE always includes offline_access, a refresh token — are
 /// obtained and persisted immediately, rather than only lazily on the next API call.
 #[tauri::command]
 pub async fn authenticate(app: AppHandle, tokens: State<'_, TokenState>) -> Result<(), String> {

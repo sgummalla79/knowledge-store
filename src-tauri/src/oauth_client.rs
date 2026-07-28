@@ -4,9 +4,9 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 use tauri::AppHandle;
 
-// Requested on every client_credentials exchange — rag-desktop is the admin/management UI, so
+// Requested on every client_credentials exchange — Knowledge Store is the admin/management UI, so
 // unlike mcp_server's narrow libraries:read+query:execute grant, it needs close to everything.
-const RAG_DESKTOP_SCOPE: &str = "libraries:read libraries:write documents:read documents:write \
+const KNOWLEDGE_STORE_SCOPE: &str = "libraries:read libraries:write documents:read documents:write \
     query:execute embedding_settings:read embedding_settings:write search_settings:read \
     search_settings:write offline_access";
 
@@ -93,7 +93,7 @@ async fn refresh_via_client_credentials(cfg: &AppConfig) -> Result<Value, String
             ("grant_type", "client_credentials"),
             ("client_id", cfg.client_id.as_str()),
             ("client_secret", cfg.client_secret.as_str()),
-            ("scope", RAG_DESKTOP_SCOPE),
+            ("scope", KNOWLEDGE_STORE_SCOPE),
         ])
         .send()
         .await
