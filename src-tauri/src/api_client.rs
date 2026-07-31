@@ -148,6 +148,28 @@ pub async fn list_documents(app: AppHandle, library_id: String, tokens: State<'_
     map_response(response).await
 }
 
+/// Starts async URL ingestion (single page or crawl) — fire-and-forget like upload_document,
+/// returns a job_id polled via get_crawl_status rather than the document-status job endpoint,
+/// since a crawl can produce many documents over time, not just one.
+#[tauri::command]
+pub async fn crawl_document(app: AppHandle, library_id: String, payload: Value, tokens: State<'_, TokenState>) -> Result<Value, String> {
+    let cfg = config::load_config(&app);
+    let url = format!("{}/libraries/{}/documents/crawl", cfg.api_base_url, library_id);
+    let response = send_with_retry(&app, &tokens, &cfg, |name, value| {
+        client().post(&url).header(name, value).json(&payload)
+    })
+    .await?;
+    map_response(response).await
+}
+
+#[tauri::command]
+pub async fn get_crawl_status(app: AppHandle, library_id: String, job_id: String, tokens: State<'_, TokenState>) -> Result<Value, String> {
+    let cfg = config::load_config(&app);
+    let url = format!("{}/libraries/{}/crawl-jobs/{}", cfg.api_base_url, library_id, job_id);
+    let response = send_with_retry(&app, &tokens, &cfg, |name, value| client().get(&url).header(name, value)).await?;
+    map_response(response).await
+}
+
 #[tauri::command]
 pub async fn delete_document(
     app: AppHandle,

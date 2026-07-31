@@ -236,6 +236,19 @@ html.platform-windows .collapse-toggle {
   gap: 1rem;
 }
 
+/* Knowledge page specifically: the title/description/+New library button stay pinned while the
+   (potentially long, many-library) list below scrolls past underneath — .content is the single
+   shared scroll container for every page, so this needs its own background to opaquely cover
+   whatever scrolls behind it, not just position:sticky alone. */
+#view-knowledge .page-header {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  background: var(--bg);
+  padding-top: 4px;
+  padding-bottom: 12px;
+}
+
 .page-header-left {
   display: flex;
   gap: 12px;
@@ -690,15 +703,55 @@ textarea:disabled {
   margin-bottom: 16px;
 }
 
+.doc-url-ingest {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.doc-url-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.doc-url-pages-input {
+  width: 70px;
+  flex-shrink: 0;
+}
+
 .doc-table-wrap {
   overflow-x: auto;
+  overflow-y: auto;
+  max-height: 420px;
   margin: 0 0 12px;
 }
 
 .doc-table {
   width: 100%;
+  table-layout: fixed;
   border-collapse: collapse;
   font-size: 13px;
+}
+
+.doc-col-select {
+  width: 36px;
+}
+
+.doc-col-size {
+  width: 80px;
+}
+
+.doc-col-chunks {
+  width: 70px;
+}
+
+.doc-col-status {
+  width: 120px;
+}
+
+.doc-col-actions {
+  width: 150px;
 }
 
 .doc-table th {
@@ -711,6 +764,12 @@ textarea:disabled {
   padding: 0 8px 6px;
   border-bottom: 1px solid var(--border);
   white-space: nowrap;
+  /* Sticky within .doc-table-wrap's own scroll area (not the page) — column labels stay visible
+     while scrolling through a page of documents. */
+  position: sticky;
+  top: 0;
+  background: var(--bg);
+  z-index: 1;
 }
 
 .doc-table td {
@@ -762,6 +821,18 @@ textarea:disabled {
   white-space: nowrap;
 }
 
+.doc-name-link {
+  display: inline-block;
+  max-width: 100%;
+  color: var(--primary);
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.doc-name-link:hover {
+  text-decoration: underline;
+}
+
 .doc-sub {
   font-size: 12px;
   color: var(--muted-fg);
@@ -811,6 +882,36 @@ textarea:disabled {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+}
+
+.doc-bulk-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--secondary-bg);
+}
+
+.doc-bulk-actions-label {
+  font-size: 13px;
+  font-weight: 500;
+  margin-right: auto;
+}
+
+.doc-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin-top: 4px;
+}
+
+.doc-pagination-label {
+  font-size: 12px;
+  color: var(--muted-fg);
+  white-space: nowrap;
 }
 
 /* pragna2's real empty state (KnowledgeView.tsx) has no border at all — just

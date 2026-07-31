@@ -20,6 +20,8 @@ pub fn run() {
             api_client::create_library,
             api_client::delete_library,
             api_client::list_documents,
+            api_client::crawl_document,
+            api_client::get_crawl_status,
             api_client::delete_document,
             api_client::retry_document,
             api_client::get_file_size,

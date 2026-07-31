@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { open, confirm } from "@tauri-apps/plugin-dialog";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { initShell } from "./shell";
 
 interface AppConfig {
@@ -30,6 +31,21 @@ interface LibraryDocument {
   // optional so the grid degrades to "—" instead of breaking if the API doesn't send these.
   size_bytes?: number | null;
   chunk_count?: number | null;
+}
+
+interface CrawlPageStatus {
+  status: string;
+  document_id: string | null;
+  error: string | null;
+}
+
+interface CrawlJobStatus {
+  status: string;
+  seed_url: string;
+  error: string | null;
+  // Grows as the crawl discovers pages — never a fixed/known count upfront, so progress is shown
+  // as "N pages so far," never a determinate percentage.
+  pages: Record<string, CrawlPageStatus>;
 }
 
 interface EmbeddingProviderOption {
@@ -173,6 +189,55 @@ const pendingUploadFilenames = new Map<string, Set<string>>();
 // thread after the POST already returned), so a poll right after clicking retry can still see
 // the stale "failed" status; cleared once a fetch shows the document has actually moved off it.
 const pendingRetryDocumentIds = new Map<string, Set<string>>();
+// Crawl jobs currently being polled, per library (libraryId -> jobId -> latest known status).
+// Rendered as a placeholder row (like an upload) until the job resolves — a crawl can take a
+// while and produce documents progressively, so this needs its own poll (crawl-jobs isn't part
+// of list_documents), run alongside the regular document-list poll so completed pages surface as
+// they land rather than only once the whole crawl finishes.
+const activeCrawlJobs = new Map<string, Map<string, CrawlJobStatus>>();
+
+function getCrawlJobsMap(libraryId: string): Map<string, CrawlJobStatus> {
+  let jobs = activeCrawlJobs.get(libraryId);
+  if (!jobs) {
+    jobs = new Map();
+    activeCrawlJobs.set(libraryId, jobs);
+  }
+  return jobs;
+}
+
+const DOCS_PER_PAGE = 10;
+// Current page per library (1-indexed) — clamped to the valid range on every render rather than
+// reset to 1 on every change, so background polling elsewhere doesn't yank the user off whatever
+// page they're browsing.
+const documentGridPage = new Map<string, number>();
+
+function getCurrentDocumentPage(libraryId: string): number {
+  return documentGridPage.get(libraryId) ?? 1;
+}
+
+// Selected document ids per library, for bulk delete.
+const selectedDocumentIds = new Map<string, Set<string>>();
+
+function getSelectedDocumentSet(libraryId: string): Set<string> {
+  let selected = selectedDocumentIds.get(libraryId);
+  if (!selected) {
+    selected = new Set();
+    selectedDocumentIds.set(libraryId, selected);
+  }
+  return selected;
+}
+
+// Keeps the grid's column widths stable regardless of how long a filename or crawled URL is —
+// table-layout:fixed alone stops a wide cell from stealing space from other columns, but doesn't
+// stop the text itself from wrapping/overflowing inside its own cell. The full, untruncated value
+// is always still available on hover via the title attribute.
+const MAX_FILENAME_DISPLAY_CHARS = 50;
+
+function truncateText(text: string, maxChars: number = MAX_FILENAME_DISPLAY_CHARS): string {
+  if (text.length <= maxChars) return text;
+  return `${text.slice(0, maxChars - 1)}…`;
+}
+
 // Cached in full so provider-select changes can be recomputed client-side without a network
 // round trip.
 let embeddingOptions: EmbeddingOptions | null = null;
@@ -919,39 +984,44 @@ function renderDocumentsInto(
   documents: LibraryDocument[],
   pendingFilenames: string[],
   retryingIds: Set<string>,
+  crawlJobs: CrawlJobStatus[],
 ) {
   body.innerHTML = "";
   body.appendChild(renderUploadRow(library));
 
-  if (documents.length === 0 && pendingFilenames.length === 0) {
+  if (documents.length === 0 && pendingFilenames.length === 0 && crawlJobs.length === 0) {
     const empty = document.createElement("div");
     empty.className = "empty-state";
     empty.textContent = "No documents yet.";
     body.appendChild(empty);
   } else {
-    body.appendChild(renderDocTable(documents, library, pendingFilenames, retryingIds));
+    body.appendChild(renderDocTable(documents, library, pendingFilenames, retryingIds, crawlJobs));
   }
 }
 
 // Re-renders from whatever was last fetched (lastKnownDocuments) plus any outstanding upload
-// placeholders/retries — no network round trip. Used right after a file is picked or a retry is
-// clicked, so the grid updates immediately instead of waiting on the request or a later poll tick.
+// placeholders/retries/crawls — no network round trip. Used right after a file is picked, a
+// retry is clicked, or a crawl job's status changes, so the grid updates immediately instead of
+// waiting on the request or a later poll tick.
 function rerenderLibraryFromCache(library: Library) {
   const body = libraryDocBodies.get(library.id);
   if (!body || !expandedLibraryIds.has(library.id)) return;
   const documents = lastKnownDocuments.get(library.id) ?? [];
   const pending = Array.from(pendingUploadFilenames.get(library.id) ?? []);
   const retrying = pendingRetryDocumentIds.get(library.id) ?? new Set<string>();
-  renderDocumentsInto(body, library, documents, pending, retrying);
+  const crawlJobs = Array.from(activeCrawlJobs.get(library.id)?.values() ?? []);
+  renderDocumentsInto(body, library, documents, pending, retrying, crawlJobs);
 }
 
 // Single source of truth for document progress: re-fetches the list and re-renders it into
 // whichever body element is currently mounted for this library (via libraryDocBodies, not a
 // captured reference), then starts or stops a background poll depending on whether anything in
-// the list — or an outstanding upload/retry placeholder — is still non-terminal. Called on
-// initial expand, right after an upload or retry, and by the poll's own interval — so progress
-// survives collapsing/re-expanding the card, deleting a different library (which rebuilds every
-// card), or just leaving the tab and coming back.
+// the list — or an outstanding upload/retry placeholder/crawl job — is still non-terminal.
+// Called on initial expand, right after an upload or retry, and by the poll's own interval — so
+// progress survives collapsing/re-expanding the card, deleting a different library (which
+// rebuilds every card), or just leaving the tab and coming back. Kept running alongside a crawl
+// job's own poll (pollCrawlJob) so pages the crawl finishes show up here as real document rows
+// progressively, not just once the whole crawl completes.
 async function syncLibraryDocuments(library: Library) {
   const body = libraryDocBodies.get(library.id);
   if (!body || !expandedLibraryIds.has(library.id)) return;
@@ -982,13 +1052,18 @@ async function syncLibraryDocuments(library: Library) {
     }
   }
 
-  renderDocumentsInto(body, library, documents, pendingList, retrying ?? new Set());
+  const crawlJobs = Array.from(activeCrawlJobs.get(library.id)?.values() ?? []);
 
-  // Keep polling while a placeholder/retry is still outstanding too — otherwise, if the very
-  // first fetch right after upload or retry lands before the server has persisted the change,
-  // this list looks like nothing's in progress and the poll would never even start.
+  renderDocumentsInto(body, library, documents, pendingList, retrying ?? new Set(), crawlJobs);
+
+  // Keep polling while a placeholder/retry/crawl is still outstanding too — otherwise, if the
+  // very first fetch right after upload or retry lands before the server has persisted the
+  // change, this list looks like nothing's in progress and the poll would never even start.
   const inProgress =
-    documents.some(isDocumentInProgress) || pendingList.length > 0 || (retrying?.size ?? 0) > 0;
+    documents.some(isDocumentInProgress) ||
+    pendingList.length > 0 ||
+    (retrying?.size ?? 0) > 0 ||
+    crawlJobs.length > 0;
   const existingPoll = activeDocumentPolls.get(library.id);
   if (inProgress && !existingPoll) {
     activeDocumentPolls.set(
@@ -1015,47 +1090,231 @@ function renderDocTable(
   library: Library,
   pendingFilenames: string[],
   retryingIds: Set<string>,
+  crawlJobs: CrawlJobStatus[],
 ): HTMLElement {
+  const container = document.createElement("div");
+
+  const selected = getSelectedDocumentSet(library.id);
+  // Drop any selected id that's no longer in the list (deleted elsewhere, etc.) so the bulk-action
+  // bar and "select all" checkbox never reflect a stale/impossible selection.
+  const currentIds = new Set(documents.map((d) => d.id));
+  for (const id of selected) {
+    if (!currentIds.has(id)) selected.delete(id);
+  }
+  if (selected.size > 0) {
+    container.appendChild(renderBulkActionsBar(library, selected));
+  }
+
+  const totalPages = Math.max(1, Math.ceil(documents.length / DOCS_PER_PAGE));
+  const currentPage = Math.min(getCurrentDocumentPage(library.id), totalPages);
+  documentGridPage.set(library.id, currentPage);
+  const pageStart = (currentPage - 1) * DOCS_PER_PAGE;
+  const pageDocuments = documents.slice(pageStart, pageStart + DOCS_PER_PAGE);
+  const pageIds = pageDocuments.map((d) => d.id);
+
   const wrap = document.createElement("div");
   wrap.className = "doc-table-wrap";
 
   const table = document.createElement("table");
   table.className = "doc-table";
-  table.innerHTML = `
-    <thead>
-      <tr>
-        <th>File</th>
-        <th>Size</th>
-        <th>Chunks</th>
-        <th>Status</th>
-        <th></th>
-      </tr>
-    </thead>
+
+  const headRow = document.createElement("tr");
+  headRow.innerHTML = `
+    <th>File</th>
+    <th class="doc-col-size">Size</th>
+    <th class="doc-col-chunks">Chunks</th>
+    <th class="doc-col-status">Status</th>
+    <th class="doc-col-actions"></th>
   `;
+  const selectAllTh = document.createElement("th");
+  selectAllTh.className = "doc-col-select";
+  const selectAllCheckbox = document.createElement("input");
+  selectAllCheckbox.type = "checkbox";
+  selectAllCheckbox.setAttribute("aria-label", "Select all documents on this page");
+  selectAllCheckbox.checked = pageIds.length > 0 && pageIds.every((id) => selected.has(id));
+  selectAllCheckbox.addEventListener("change", () => {
+    for (const id of pageIds) {
+      if (selectAllCheckbox.checked) selected.add(id);
+      else selected.delete(id);
+    }
+    rerenderLibraryFromCache(library);
+  });
+  selectAllTh.appendChild(selectAllCheckbox);
+  headRow.prepend(selectAllTh);
+
+  const thead = document.createElement("thead");
+  thead.appendChild(headRow);
+  table.appendChild(thead);
 
   const tbody = document.createElement("tbody");
+  for (const job of crawlJobs) {
+    tbody.appendChild(renderCrawlJobRow(job));
+  }
   for (const filename of pendingFilenames) {
     tbody.appendChild(renderPendingRow(filename));
   }
-  for (const doc of documents) {
-    tbody.appendChild(renderDocRow(doc, library, retryingIds.has(doc.id)));
+  for (const doc of pageDocuments) {
+    tbody.appendChild(renderDocRow(doc, library, retryingIds.has(doc.id), selected.has(doc.id)));
   }
   table.appendChild(tbody);
 
   wrap.appendChild(table);
-  return wrap;
+  container.appendChild(wrap);
+
+  if (totalPages > 1) {
+    container.appendChild(renderPaginationControls(library, currentPage, totalPages));
+  }
+
+  return container;
 }
 
-function renderPendingRow(filename: string): HTMLElement {
+function renderBulkActionsBar(library: Library, selected: Set<string>): HTMLElement {
+  const bar = document.createElement("div");
+  bar.className = "doc-bulk-actions";
+
+  const label = document.createElement("span");
+  label.className = "doc-bulk-actions-label";
+  label.textContent = `${selected.size} selected`;
+
+  const clearButton = document.createElement("button");
+  clearButton.type = "button";
+  clearButton.className = "btn btn-ghost btn-sm";
+  clearButton.textContent = "Clear";
+  clearButton.addEventListener("click", () => {
+    selected.clear();
+    rerenderLibraryFromCache(library);
+  });
+
+  const deleteButton = document.createElement("button");
+  deleteButton.type = "button";
+  deleteButton.className = "btn btn-danger btn-sm";
+  deleteButton.textContent = "Delete selected";
+  deleteButton.addEventListener("click", async () => {
+    const ids = Array.from(selected);
+    const confirmed = await confirm(
+      `Delete ${ids.length} document${ids.length === 1 ? "" : "s"}? This removes them and their embeddings from this library.`,
+      { title: "Delete documents", kind: "warning" },
+    );
+    if (!confirmed) return;
+
+    // No bulk-delete endpoint exists — this loops the existing single-document delete, same as
+    // clicking Delete on each row individually, just without needing to do it one at a time.
+    let succeeded = 0;
+    let firstError: string | null = null;
+    for (const id of ids) {
+      try {
+        await invoke("delete_document", { libraryId: library.id, documentId: id });
+        selected.delete(id);
+        succeeded += 1;
+      } catch (error) {
+        firstError ??= parseError(error).message;
+      }
+    }
+    if (firstError) {
+      showToast(`Deleted ${succeeded} of ${ids.length} document(s). First error: ${firstError}`, "error");
+    } else {
+      showToast(`${succeeded} document${succeeded === 1 ? "" : "s"} deleted.`);
+    }
+    await syncLibraryDocuments(library);
+  });
+
+  bar.appendChild(label);
+  bar.appendChild(clearButton);
+  bar.appendChild(deleteButton);
+  return bar;
+}
+
+function renderPaginationControls(library: Library, currentPage: number, totalPages: number): HTMLElement {
+  const bar = document.createElement("div");
+  bar.className = "doc-pagination";
+
+  const prevButton = document.createElement("button");
+  prevButton.type = "button";
+  prevButton.className = "btn btn-ghost btn-sm";
+  prevButton.textContent = "Previous";
+  prevButton.disabled = currentPage <= 1;
+  prevButton.addEventListener("click", () => {
+    documentGridPage.set(library.id, currentPage - 1);
+    rerenderLibraryFromCache(library);
+  });
+
+  const label = document.createElement("span");
+  label.className = "doc-pagination-label";
+  label.textContent = `Page ${currentPage} of ${totalPages}`;
+
+  const nextButton = document.createElement("button");
+  nextButton.type = "button";
+  nextButton.className = "btn btn-ghost btn-sm";
+  nextButton.textContent = "Next";
+  nextButton.disabled = currentPage >= totalPages;
+  nextButton.addEventListener("click", () => {
+    documentGridPage.set(library.id, currentPage + 1);
+    rerenderLibraryFromCache(library);
+  });
+
+  bar.appendChild(prevButton);
+  bar.appendChild(label);
+  bar.appendChild(nextButton);
+  return bar;
+}
+
+// No fixed page count is known upfront (see the CrawlJobStatus.pages comment) — shown as "N pages
+// so far," never a determinate progress bar, matching the crawl API's own guidance. No actions
+// (no way to cancel a crawl server-side); this row simply disappears once pollCrawlJob discovers
+// the job has finished, at which point its pages already exist as normal document rows.
+function renderCrawlJobRow(job: CrawlJobStatus): HTMLElement {
   const row = document.createElement("tr");
   row.className = "doc-row";
+
+  const pageCount = Object.keys(job.pages).length;
+
+  const selectCell = document.createElement("td");
 
   const fileCell = document.createElement("td");
   fileCell.className = "doc-file-cell";
   fileCell.innerHTML = `
     <span class="doc-icon">${ICONS.fileText}</span>
     <span class="doc-name-group">
-      <span class="doc-name" title="${filename}">${filename}</span>
+      <span class="doc-name" title="${job.seed_url}">${truncateText(job.seed_url)}</span>
+      <span class="doc-sub">${pageCount} page${pageCount === 1 ? "" : "s"} so far</span>
+    </span>
+  `;
+
+  const sizeCell = document.createElement("td");
+  sizeCell.className = "doc-muted-cell";
+  sizeCell.textContent = "—";
+
+  const chunksCell = document.createElement("td");
+  chunksCell.className = "doc-muted-cell";
+  chunksCell.textContent = "—";
+
+  const statusCell = document.createElement("td");
+  statusCell.appendChild(renderStatusBadge("crawling"));
+
+  const actionsCell = document.createElement("td");
+  actionsCell.className = "doc-actions-cell";
+
+  row.appendChild(selectCell);
+  row.appendChild(fileCell);
+  row.appendChild(sizeCell);
+  row.appendChild(chunksCell);
+  row.appendChild(statusCell);
+  row.appendChild(actionsCell);
+  return row;
+}
+
+function renderPendingRow(filename: string): HTMLElement {
+  const row = document.createElement("tr");
+  row.className = "doc-row";
+
+  const selectCell = document.createElement("td");
+
+  const fileCell = document.createElement("td");
+  fileCell.className = "doc-file-cell";
+  fileCell.innerHTML = `
+    <span class="doc-icon">${ICONS.fileText}</span>
+    <span class="doc-name-group">
+      <span class="doc-name" title="${filename}">${truncateText(filename)}</span>
     </span>
   `;
 
@@ -1073,6 +1332,7 @@ function renderPendingRow(filename: string): HTMLElement {
   const actionsCell = document.createElement("td");
   actionsCell.className = "doc-actions-cell";
 
+  row.appendChild(selectCell);
   row.appendChild(fileCell);
   row.appendChild(sizeCell);
   row.appendChild(chunksCell);
@@ -1119,19 +1379,63 @@ function renderStatusBadge(status: string): HTMLElement {
   return badge;
 }
 
-function renderDocRow(doc: LibraryDocument, library: Library, isRetrying: boolean): HTMLElement {
+function renderDocRow(doc: LibraryDocument, library: Library, isRetrying: boolean, isSelected: boolean): HTMLElement {
   const row = document.createElement("tr");
   row.className = "doc-row";
 
+  const selectCell = document.createElement("td");
+  const selectCheckbox = document.createElement("input");
+  selectCheckbox.type = "checkbox";
+  selectCheckbox.checked = isSelected;
+  selectCheckbox.setAttribute("aria-label", `Select ${doc.source_filename}`);
+  selectCheckbox.addEventListener("change", () => {
+    const selected = getSelectedDocumentSet(library.id);
+    if (selectCheckbox.checked) selected.add(doc.id);
+    else selected.delete(doc.id);
+    rerenderLibraryFromCache(library);
+  });
+  selectCell.appendChild(selectCheckbox);
+
   const fileCell = document.createElement("td");
   fileCell.className = "doc-file-cell";
-  fileCell.innerHTML = `
-    <span class="doc-icon">${ICONS.fileText}</span>
-    <span class="doc-name-group">
-      <span class="doc-name" title="${doc.source_filename}">${doc.source_filename}</span>
-      <span class="doc-sub">${doc.file_type}</span>
-    </span>
-  `;
+  const fileIcon = document.createElement("span");
+  fileIcon.className = "doc-icon";
+  fileIcon.innerHTML = ICONS.fileText;
+  fileCell.appendChild(fileIcon);
+
+  const nameGroup = document.createElement("span");
+  nameGroup.className = "doc-name-group";
+
+  // Crawled pages store the full URL as source_filename (file_type "html"), not a filename — a
+  // plain text label reads oddly for that, so make it an actual link to the original page
+  // instead (opened in the system browser, never inside the app's own webview). Either way, the
+  // displayed text is capped to a fixed character count so a very long filename/URL can never
+  // blow out the column's fixed width — the full value is always still on the title tooltip.
+  if (doc.file_type === "html") {
+    const link = document.createElement("a");
+    link.href = "#";
+    link.className = "doc-name doc-name-link";
+    link.title = doc.source_filename;
+    link.textContent = truncateText(doc.source_filename);
+    link.addEventListener("click", (event) => {
+      event.preventDefault();
+      void openUrl(doc.source_filename);
+    });
+    nameGroup.appendChild(link);
+  } else {
+    const name = document.createElement("span");
+    name.className = "doc-name";
+    name.title = doc.source_filename;
+    name.textContent = truncateText(doc.source_filename);
+    nameGroup.appendChild(name);
+  }
+
+  const sub = document.createElement("span");
+  sub.className = "doc-sub";
+  sub.textContent = doc.file_type;
+  nameGroup.appendChild(sub);
+
+  fileCell.appendChild(nameGroup);
 
   const sizeCell = document.createElement("td");
   sizeCell.className = "doc-muted-cell";
@@ -1199,6 +1503,7 @@ function renderDocRow(doc: LibraryDocument, library: Library, isRetrying: boolea
   actions.appendChild(deleteButton);
   actionsCell.appendChild(actions);
 
+  row.appendChild(selectCell);
   row.appendChild(fileCell);
   row.appendChild(sizeCell);
   row.appendChild(chunksCell);
@@ -1261,7 +1566,123 @@ function renderUploadRow(library: Library): HTMLElement {
   });
 
   wrapper.appendChild(dropzone);
+  wrapper.appendChild(renderUrlIngestForm(library));
   return wrapper;
+}
+
+function renderUrlIngestForm(library: Library): HTMLElement {
+  const urlForm = document.createElement("form");
+  urlForm.className = "doc-url-ingest";
+
+  const urlInput = document.createElement("input");
+  urlInput.type = "url";
+  urlInput.placeholder = "https://example.com/docs/page";
+  urlInput.className = "doc-url-input";
+  urlInput.required = true;
+
+  const pagesInput = document.createElement("input");
+  pagesInput.type = "number";
+  pagesInput.min = "1";
+  pagesInput.max = "100";
+  pagesInput.placeholder = "1";
+  pagesInput.className = "doc-url-pages-input";
+  pagesInput.title = "Pages to crawl (1 = just this page, up to 100)";
+
+  const submitButton = document.createElement("button");
+  submitButton.type = "submit";
+  submitButton.className = "btn btn-sm btn-primary";
+  submitButton.textContent = "Ingest URL";
+
+  urlForm.appendChild(urlInput);
+  urlForm.appendChild(pagesInput);
+  urlForm.appendChild(submitButton);
+
+  urlForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const url = urlInput.value.trim();
+    if (!url) return;
+    const maxPages = pagesInput.value.trim() ? Number(pagesInput.value) : 1;
+
+    try {
+      const result = await invoke<{ job_id: string }>("crawl_document", {
+        libraryId: library.id,
+        payload: { url, max_pages: maxPages },
+      });
+      urlInput.value = "";
+      pagesInput.value = "";
+      // Optimistic placeholder — pages start empty and fill in as pollCrawlJob discovers them.
+      getCrawlJobsMap(library.id).set(result.job_id, { status: "pending", seed_url: url, error: null, pages: {} });
+      rerenderLibraryFromCache(library);
+      showToast(`Started ingesting ${url}`);
+      void pollCrawlJob(library, result.job_id);
+    } catch (error) {
+      showToast(`Error starting crawl for "${url}": ${parseError(error).message}`, "error");
+    }
+  });
+
+  return urlForm;
+}
+
+// Crawls have no fixed duration — page count grows as the crawl discovers links, there's a
+// politeness delay between page fetches, and JS-rendered pages take a few extra seconds each to
+// render headlessly — so this polls on a slower, fixed cadence rather than trying to predict
+// completion, and reports progress as "N pages so far" (see CrawlJobStatus.pages) rather than a
+// determinate percentage, matching the API's own guidance.
+async function pollCrawlJob(library: Library, jobId: string) {
+  const jobs = getCrawlJobsMap(library.id);
+  let status: CrawlJobStatus;
+  try {
+    status = await invoke<CrawlJobStatus>("get_crawl_status", { libraryId: library.id, jobId });
+  } catch (error) {
+    jobs.delete(jobId);
+    rerenderLibraryFromCache(library);
+    showToast(`Error checking crawl status: ${parseError(error).message}`, "error");
+    return;
+  }
+
+  if (status.status === "completed" || status.status === "failed") {
+    jobs.delete(jobId);
+    rerenderLibraryFromCache(library);
+
+    if (status.status === "failed") {
+      // The job itself broke (e.g. the seed URL was invalid) — distinct from a "completed" job
+      // where every individual page failed (see below), which is a different failure mode with
+      // its own message rather than this generic one.
+      showToast(`Crawl of "${status.seed_url}" failed: ${status.error ?? "unknown error"}`, "error");
+    } else {
+      const pages = Object.values(status.pages);
+      const succeeded = pages.filter((p) => p.status === "completed").length;
+      const failed = pages.filter((p) => p.status === "failed");
+      if (pages.length === 0) {
+        // No pages recorded at all — e.g. everything was skipped by robots.txt with nothing
+        // else attempted. Not really a failure the API can report on, so say so plainly.
+        showToast(`Crawl of "${status.seed_url}" finished, but no pages were ingested.`, "error");
+      } else if (succeeded === 0) {
+        // "Completed" but every single page failed — reads exactly like a success ("N pages
+        // processed") if not called out explicitly, which is the gap that prompted this: the
+        // job status alone doesn't tell you whether "processed" meant "succeeded."
+        showToast(
+          `Crawl of "${status.seed_url}" finished, but all ${pages.length} page(s) failed. ` +
+            `First error: ${failed[0]?.error ?? "unknown error"}`,
+          "error",
+        );
+      } else if (failed.length > 0) {
+        showToast(
+          `Finished crawling "${status.seed_url}" — ${succeeded} of ${pages.length} page(s) ingested (${failed.length} failed).`,
+        );
+      } else {
+        showToast(`Finished crawling "${status.seed_url}" — ${succeeded} page${succeeded === 1 ? "" : "s"} ingested.`);
+      }
+    }
+    // One more sync to make sure the last completed page's document row is reflected —
+    // syncLibraryDocuments's own poll may already be running, but this guarantees it happens.
+    await syncLibraryDocuments(library);
+    return;
+  }
+
+  jobs.set(jobId, status);
+  rerenderLibraryFromCache(library);
+  setTimeout(() => void pollCrawlJob(library, jobId), 2000);
 }
 
 // Re-runs the full connection/embeddings load, same sequence as startup. Used by: the manual
