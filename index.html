@@ -93,7 +93,6 @@
                 <button type="submit" class="btn btn-primary btn-sm">Create</button>
               </div>
             </form>
-            <p class="status-text" id="create-library-status"></p>
           </div>
 
           <div id="libraries-list"></div>
@@ -145,7 +144,6 @@
                   <button type="button" class="btn btn-ghost btn-sm" id="disconnect-btn" hidden>Disconnect</button>
                 </div>
               </form>
-              <p class="status-text" id="settings-status"></p>
             </div>
           </div>
 
@@ -155,125 +153,52 @@
                 <span class="chevron" id="embeddings-chevron">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
                 </span>
-                <span class="card-title">Embeddings — Voyage</span>
+                <span class="card-title">Embeddings</span>
                 <span class="badge" id="embeddings-badge">Not configured</span>
-              </button>
-              <button type="button" class="btn btn-ghost btn-sm" id="voyage-instructions-btn">
-                <span class="btn-icon-inline"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg></span>
-                Instructions
               </button>
             </div>
             <div class="card-body" id="embeddings-card-body" hidden>
               <p class="status-text" id="embeddings-disabled-hint">Configure your connection above first.</p>
               <form id="embeddings-form" class="form-grid">
-                <label>Embedding model<span class="select-wrapper"><select id="embed-settings-model" disabled></select></span></label>
-                <p class="dimensions-hint">Dimensions: <span id="embed-settings-dimensions">—</span> (fixed by the deployment)</p>
-                <div class="form-row-2">
-                  <label>Chunk size<input id="embed-settings-chunk-size" type="number" disabled /></label>
-                  <label>Chunk overlap<input id="embed-settings-chunk-overlap" type="number" disabled /></label>
-                </div>
-                <p class="status-text">Applies to every library — chunking happens once, at upload time, using whatever is saved here.</p>
-                <label><span id="embed-settings-api-key-label">API key</span>
+                <label>Provider<span class="select-wrapper"><select id="embed-settings-provider" disabled></select></span></label>
+                <label id="embed-settings-base-url-field" hidden>Connection URL
+                  <input id="embed-settings-base-url" placeholder="http://ollama:11434" disabled />
+                </label>
+                <p class="status-text" id="embed-settings-base-url-hint" hidden>Optional — point at a different Ollama instance instead of the bundled one. Leave blank to use the default.</p>
+                <label id="embed-settings-api-key-field" hidden>API key
                   <span class="password-field">
-                    <input id="embed-settings-api-key" placeholder="Voyage API key" type="password" disabled />
+                    <input id="embed-settings-api-key" type="password" placeholder="Leave blank to keep the current key" disabled />
                     <button type="button" class="password-toggle" id="embed-settings-api-key-toggle" aria-label="Show password" title="Show password" disabled>
                       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.636-7 10-7 10 7 10 7-3.636 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
                     </button>
                   </span>
                 </label>
-                <p class="status-text">Stored in the database and never shown again once saved.</p>
+                <div class="form-row-2">
+                  <label>Model
+                    <input id="embed-settings-model" list="embed-settings-model-list" placeholder="e.g. nomic-embed-text" disabled />
+                    <datalist id="embed-settings-model-list"></datalist>
+                  </label>
+                  <label>Dimensions<span class="select-wrapper"><select id="embed-settings-dimensions" disabled></select></span></label>
+                </div>
+                <p class="status-text" id="embed-settings-model-fetch-hint" hidden></p>
+                <div class="form-row-2">
+                  <label>Chunk size<input id="embed-settings-chunk-size" type="number" disabled /></label>
+                  <label>Chunk overlap<input id="embed-settings-chunk-overlap" type="number" disabled /></label>
+                </div>
+                <p class="status-text">Applies to every library — chunking happens once, at upload time, using whatever is saved here.</p>
+                <p class="status-text" id="embed-settings-locked-hint" hidden>Provider, model, dimensions, and connection URL are locked, and this configuration can't be deleted — delete every document across every library first. Chunk size, chunk overlap, and API key can still be changed.</p>
                 <div class="form-actions">
-                  <button type="button" class="btn btn-ghost btn-sm" id="embeddings-remove-btn" hidden>Remove</button>
-                  <button type="submit" class="btn btn-primary btn-sm" id="embeddings-save-btn" disabled>Save key</button>
+                  <button type="button" class="btn btn-danger btn-sm" id="embeddings-remove-btn" hidden>Delete configuration</button>
+                  <button type="submit" class="btn btn-primary btn-sm" id="embeddings-save-btn" disabled>Save</button>
                 </div>
               </form>
               <p class="status-text" id="embeddings-form-status"></p>
-
-              <div class="field-group">
-                <div class="field-group-label">Search &amp; rerank</div>
-                <p class="status-text">Tunes hybrid retrieval. Defaults work well — change only if you know why.</p>
-                <form id="search-settings-form" class="form-grid">
-                  <label class="checkbox-label">
-                    <input type="checkbox" id="rerank-enabled" disabled />
-                    Re-rank results after fusion
-                  </label>
-                  <label>Rerank model<span class="select-wrapper"><select id="rerank-model" disabled></select></span></label>
-                  <div class="form-row-2">
-                    <label>Dense candidates<input id="dense-k" type="number" min="1" max="100" disabled /></label>
-                    <label>Sparse candidates<input id="sparse-k" type="number" min="1" max="100" disabled /></label>
-                  </div>
-                  <div class="form-row-2">
-                    <label>Rerank candidates<input id="rerank-candidates" type="number" min="1" max="100" disabled /></label>
-                    <label>RRF constant (k)<input id="rrf-k" type="number" min="1" max="1000" disabled /></label>
-                  </div>
-                  <div class="form-actions">
-                    <button type="submit" class="btn btn-primary btn-sm" id="search-settings-save-btn" disabled>Save</button>
-                  </div>
-                </form>
-                <p class="status-text" id="search-settings-status"></p>
-              </div>
             </div>
           </div>
         </section>
-
-        <div class="flyout-overlay" id="voyage-instructions-overlay" hidden>
-          <aside class="flyout-panel" id="voyage-instructions-panel">
-            <div class="flyout-header">
-              <h2>Get a free Voyage API key</h2>
-              <button type="button" class="btn btn-icon" id="voyage-instructions-close" aria-label="Close">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-              </button>
-            </div>
-            <p class="flyout-description">
-              Voyage AI provides a free tier that covers embedding and re-ranking — no credit card
-              required. Follow the steps below to get your key.
-            </p>
-            <div class="flyout-steps">
-              <div class="flyout-step">
-                <span class="flyout-step-number">1</span>
-                <div>
-                  <p class="flyout-step-title">Create a free Voyage AI account</p>
-                  <p class="flyout-step-body">Go to <a href="https://dash.voyageai.com" target="_blank" rel="noopener noreferrer">dash.voyageai.com</a> and sign up with your Google or GitHub account (or email). No credit card is asked during sign-up.</p>
-                </div>
-              </div>
-              <div class="flyout-step">
-                <span class="flyout-step-number">2</span>
-                <div>
-                  <p class="flyout-step-title">Open the API Keys page</p>
-                  <p class="flyout-step-body">After signing in, click <strong>API Keys</strong> in the left sidebar (or navigate to <code>dash.voyageai.com/api-keys</code>).</p>
-                </div>
-              </div>
-              <div class="flyout-step">
-                <span class="flyout-step-number">3</span>
-                <div>
-                  <p class="flyout-step-title">Create a new key</p>
-                  <p class="flyout-step-body">Click <strong>Create new secret key</strong>, give it a name (e.g. <em>Knowledge Store</em>), then click <strong>Create</strong>. The key starts with <code>pa-</code>.</p>
-                </div>
-              </div>
-              <div class="flyout-step">
-                <span class="flyout-step-number">4</span>
-                <div>
-                  <p class="flyout-step-title">Copy the key immediately</p>
-                  <p class="flyout-step-body">The full key is shown only once. Copy it now — you will not be able to view it again after closing the dialog.</p>
-                </div>
-              </div>
-              <div class="flyout-step">
-                <span class="flyout-step-number">5</span>
-                <div>
-                  <p class="flyout-step-title">Paste it here</p>
-                  <p class="flyout-step-body">Close this panel, expand the <strong>Embeddings — Voyage</strong> card, paste your key into the <strong>API key</strong> field, and click <strong>Save key</strong>. It's stored in the database and never shown again.</p>
-                </div>
-              </div>
-            </div>
-            <div class="flyout-note">
-              <strong>Free tier limits</strong> — Voyage AI's free plan includes 200M embedding tokens and 1M re-ranking tokens per month, more than enough to get started. Upgrade any time from the Voyage AI dashboard if you need higher limits.
-            </div>
-            <div class="flyout-note">
-              <strong>Which model is used?</strong> — Knowledge Store defaults to <code>voyage-3</code> for embeddings and <code>rerank-2</code> for re-ranking, both covered by the free tier. You can change the rerank model in the Search &amp; rerank section inside this same card after your key is saved.
-            </div>
-          </aside>
-        </div>
       </main>
     </div>
+
+    <div class="toast-container" id="toast-container" aria-live="polite"></div>
   </body>
 </html>

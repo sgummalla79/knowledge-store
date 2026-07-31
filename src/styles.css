@@ -5,6 +5,15 @@
   box-sizing: border-box;
 }
 
+/* The browser's built-in [hidden] rule (display:none) is a UA-stylesheet rule — normal author
+   CSS always wins over it regardless of specificity, so any class that sets its own `display`
+   (.btn's display:inline-flex, .form-grid label's display:flex, etc.) silently cancels `hidden`
+   entirely: the DOM attribute and accessibility state are correct, but the element stays fully
+   visible and laid out. This makes `hidden` behave as documented everywhere, unconditionally. */
+[hidden] {
+  display: none !important;
+}
+
 html,
 body {
   margin: 0;
@@ -374,6 +383,16 @@ h1 {
   color: var(--destructive);
 }
 
+/* Sizes a button to match the .badge pill (docs-count badge) exactly — same padding, fully
+   rounded corners, same font-size — for actions that should read as badge-sized, not full-size
+   buttons (e.g. the delete actions next to a docs-count badge). */
+.btn-pill {
+  height: auto;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+}
+
 /* Buttons */
 
 .btn {
@@ -423,6 +442,15 @@ h1 {
 
 .btn-ghost:hover {
   background: var(--secondary-bg);
+}
+
+.btn-danger {
+  background: var(--destructive);
+  color: var(--tile-fg);
+}
+
+.btn-danger:hover {
+  background: color-mix(in oklch, var(--destructive) 85%, black);
 }
 
 /* pragna2's delete-library action is a ConfirmButton size="icon" — the shadcn
@@ -503,53 +531,6 @@ h1 {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 10px;
-}
-
-/* Sub-section within a card body (e.g. "Search & rerank" nested under the Embeddings card,
-   matching pragna2's KnowledgeSettingsFields nested inside EmbeddingKeySection). */
-.field-group {
-  border-top: 1px solid var(--border);
-  padding-top: 16px;
-  margin-top: 16px;
-}
-
-.field-group-label {
-  font-size: 12px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--muted-fg);
-  margin-bottom: 6px;
-}
-
-.checkbox-label {
-  display: flex !important;
-  flex-direction: row !important;
-  align-items: center;
-  gap: 8px;
-  font-size: 14px;
-  font-weight: 500;
-  color: var(--fg);
-  text-transform: uppercase;
-  letter-spacing: 0.02em;
-}
-
-/* The generic `input { border-radius / border / padding / min-height }` rule below is meant for
-   text/select/number fields — a checkbox needs its own reset, or it inherits a 32px-tall,
-   heavily-padded, 14px-rounded box that renders as a flat, mis-shaped square. */
-.checkbox-label input[type="checkbox"] {
-  min-height: 0;
-  width: 16px;
-  height: 16px;
-  padding: 0;
-  border-radius: 4px;
-  accent-color: var(--primary);
-}
-
-.dimensions-hint {
-  font-size: 12px;
-  color: var(--muted-fg);
-  margin: -2px 0 0;
 }
 
 /* Matches pragna2's real Input/Select components: rounded-lg (not the smaller
@@ -705,25 +686,53 @@ textarea:disabled {
   gap: 4px;
 }
 
-.doc-list {
-  list-style: none;
-  margin: 0 0 12px;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
+.doc-upload-wrap {
+  margin-bottom: 16px;
 }
 
-.doc-row {
+.doc-table-wrap {
+  overflow-x: auto;
+  margin: 0 0 12px;
+}
+
+.doc-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.doc-table th {
+  text-align: left;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted-fg);
+  padding: 0 8px 6px;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.doc-table td {
+  padding: 8px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+
+.doc-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.doc-table tbody tr:hover {
+  background: var(--secondary-bg);
+}
+
+.doc-file-cell {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 6px 8px;
-  border-radius: var(--radius-sm);
-}
-
-.doc-row:hover {
-  background: var(--secondary-bg);
+  min-width: 0;
+  width: 100%;
 }
 
 .doc-icon {
@@ -739,9 +748,10 @@ textarea:disabled {
   justify-content: center;
 }
 
-.doc-info {
-  flex: 1;
+.doc-name-group {
   min-width: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 .doc-name {
@@ -757,6 +767,52 @@ textarea:disabled {
   color: var(--muted-fg);
 }
 
+.doc-muted-cell {
+  color: var(--muted-fg);
+  white-space: nowrap;
+}
+
+.doc-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.doc-status-completed {
+  color: var(--tile-teal);
+}
+
+.doc-status-failed {
+  color: var(--destructive);
+}
+
+.doc-status-progress {
+  color: var(--muted-fg);
+}
+
+.doc-status-spinner {
+  width: 11px;
+  height: 11px;
+  border: 2px solid var(--border);
+  border-top-color: var(--primary);
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
+}
+
+.doc-actions-cell {
+  width: 1%;
+  white-space: nowrap;
+  text-align: right;
+}
+
+.doc-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
 /* pragna2's real empty state (KnowledgeView.tsx) has no border at all — just
    generous vertical padding (py-16) around centered, muted text. */
 .empty-state {
@@ -767,9 +823,13 @@ textarea:disabled {
 }
 
 .dropzone {
+  background: transparent;
+  font-family: inherit;
   border: 1px dashed var(--border);
   border-radius: var(--radius-md);
-  padding: 16px;
+  padding: 24px 16px;
+  width: 100%;
+  box-sizing: border-box;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -784,8 +844,22 @@ textarea:disabled {
   height: 22px;
 }
 
+.dropzone .dropzone-title {
+  font-weight: 500;
+  color: var(--fg);
+}
+
+.dropzone .dropzone-caption {
+  font-size: 11px;
+  color: var(--muted-fg);
+}
+
 .dropzone:hover {
   border-color: var(--primary);
+  color: var(--primary);
+}
+
+.dropzone:hover .dropzone-title {
   color: var(--primary);
 }
 
@@ -832,119 +906,48 @@ textarea:disabled {
   box-shadow: none;
 }
 
-/* Voyage instructions flyout — a right-anchored slide-in panel (mirrors pragna2's
-   VoyageInstructionsSheet, which is a Radix Sheet; this app has no such primitive, so it's a
-   plain fixed overlay + panel with a CSS transform transition). */
-
-.flyout-overlay {
+/* Toasts — non-blocking confirmation of a CRUD action's outcome (created/saved/deleted/failed),
+   replacing inline "Saved."-style text that used to sit permanently next to a button. Stacked
+   bottom-right, newest at the bottom; each is click-to-dismiss and auto-dismisses on its own. */
+.toast-container {
   position: fixed;
-  inset: 0;
-  background: color-mix(in oklch, black 40%, transparent);
-  z-index: 200;
-  opacity: 0;
-  visibility: hidden;
-  transition: opacity 0.2s ease, visibility 0.2s ease;
-}
-
-.flyout-overlay.open {
-  opacity: 1;
-  visibility: visible;
-}
-
-.flyout-panel {
-  position: fixed;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  width: min(420px, 100%);
-  background: var(--bg);
-  border-left: 1px solid var(--border);
-  box-shadow: var(--shadow-2xl);
-  padding: 20px;
-  overflow-y: auto;
-  transform: translateX(100%);
-  transition: transform 0.2s ease;
-}
-
-.flyout-overlay.open .flyout-panel {
-  transform: translateX(0);
-}
-
-.flyout-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.flyout-header h2 {
-  font-size: 16px;
-  font-weight: 700;
-  margin: 0;
-}
-
-.flyout-description {
-  margin: 8px 0 0;
-  font-size: 13px;
-  color: var(--muted-fg);
-}
-
-.flyout-steps {
+  bottom: 20px;
+  right: 20px;
   display: flex;
   flex-direction: column;
-  gap: 20px;
-  margin: 24px 0;
+  gap: 8px;
+  z-index: 500;
+  pointer-events: none;
+  max-width: 360px;
 }
 
-.flyout-step {
-  display: flex;
-  gap: 12px;
-}
-
-.flyout-step-number {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  min-width: 24px;
-  border-radius: 999px;
-  background: var(--primary);
-  color: var(--primary-fg);
-  font-size: 12px;
-  font-weight: 700;
-}
-
-.flyout-step-title {
-  margin: 0;
-  font-size: 13px;
-  font-weight: 600;
-}
-
-.flyout-step-body {
-  margin: 4px 0 0;
-  font-size: 13px;
-  color: var(--muted-fg);
-}
-
-.flyout-step-body a {
-  color: var(--primary);
-}
-
-.flyout-step-body code {
-  font-family: monospace;
-  font-size: 12px;
-}
-
-.flyout-note {
+.toast {
+  pointer-events: auto;
+  cursor: pointer;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--border);
   border-radius: var(--radius-md);
-  background: var(--secondary-bg);
-  padding: 12px 14px;
-  font-size: 12px;
+  box-shadow: var(--shadow-2xl);
+  padding: 10px 14px;
+  font-size: 13px;
   color: var(--fg);
-  margin-bottom: 12px;
+  opacity: 0;
+  transform: translateY(8px);
+  transition: opacity 0.2s ease, transform 0.2s ease;
 }
 
-.flyout-note code {
-  font-family: monospace;
+.toast-visible {
+  opacity: 1;
+  transform: translateY(0);
 }
+
+.toast-success {
+  border-left-color: var(--tile-teal);
+}
+
+.toast-error {
+  border-left-color: var(--destructive);
+  color: var(--destructive);
+}
+

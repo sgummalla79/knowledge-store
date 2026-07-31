@@ -1,4 +1,5 @@
 use crate::config::{self, AppConfig};
+use crate::http_client::client;
 use serde_json::Value;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
@@ -74,7 +75,7 @@ async fn ensure_fresh_token(app: &AppHandle, tokens: &TokenState, cfg: &AppConfi
 }
 
 async fn refresh_via_refresh_token(cfg: &AppConfig) -> Result<Value, String> {
-    let response = reqwest::Client::new()
+    let response = client()
         .post(format!("{}/oauth/token", cfg.api_base_url))
         .form(&[("grant_type", "refresh_token"), ("refresh_token", cfg.refresh_token.as_str())])
         .send()
@@ -87,7 +88,7 @@ async fn refresh_via_refresh_token(cfg: &AppConfig) -> Result<Value, String> {
 }
 
 async fn refresh_via_client_credentials(cfg: &AppConfig) -> Result<Value, String> {
-    let response = reqwest::Client::new()
+    let response = client()
         .post(format!("{}/oauth/token", cfg.api_base_url))
         .form(&[
             ("grant_type", "client_credentials"),

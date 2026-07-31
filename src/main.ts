@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import { open } from "@tauri-apps/plugin-dialog";
+import { open, confirm } from "@tauri-apps/plugin-dialog";
 import { initShell } from "./shell";
 
 interface AppConfig {
@@ -23,40 +23,50 @@ interface LibraryDocument {
   source_filename: string;
   file_type: string;
   status: string;
+  error_message: string | null;
   ingested_at: string | null;
   created_at: string;
+  // Not confirmed as part of the API's document object yet (see the ingestion-status API ask) —
+  // optional so the grid degrades to "—" instead of breaking if the API doesn't send these.
+  size_bytes?: number | null;
+  chunk_count?: number | null;
+}
+
+interface EmbeddingProviderOption {
+  name: string;
+  api_key_required: boolean;
+  base_url_required: boolean;
+  base_url_supported: boolean;
+  default_base_url: string | null;
+  // Voyage has no model-listing capability at all (no adapter method) — this is false for it and
+  // true for ollama/openai_compatible, per POST /embedding-options/models.
+  supports_model_listing: boolean;
+}
+
+// Purely a convenience suggestion for the UI to offer as a one-click fill — never validated or
+// enforced server-side, and NOT filtered to only the currently-enabled providers, so any use of
+// this must cross-check `provider` against the actual (enabled) providers list before offering it.
+interface EmbeddingModelPreset {
+  provider: string;
+  model: string;
+  dimensions: number;
 }
 
 interface EmbeddingOptions {
-  providers: { name: string; models: string[] }[];
+  providers: EmbeddingProviderOption[];
   default_provider: string;
   default_model: string;
-  dimensions: number;
+  suggested_models: EmbeddingModelPreset[];
 }
 
 interface EmbeddingSettingsStatus {
   provider: string | null;
   model: string | null;
   configured: boolean;
+  base_url: string | null;
+  dimensions: number | null;
   chunk_size: number;
   chunk_overlap: number;
-  updated_at: string | null;
-}
-
-interface RerankOptions {
-  providers: { name: string; models: string[] }[];
-  default_provider: string;
-  default_model: string;
-}
-
-interface SearchSettingsStatus {
-  rerank_enabled: boolean;
-  rerank_provider: string;
-  rerank_model: string;
-  dense_k: number;
-  sparse_k: number;
-  rerank_candidates: number;
-  rrf_k: number;
   updated_at: string | null;
 }
 
@@ -84,7 +94,6 @@ function parseError(error: unknown): AppError {
 const ICONS = {
   chevronRight:
     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>',
-  x: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>',
   fileText:
     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><line x1="10" y1="9" x2="8" y2="9"/></svg>',
   upload:
@@ -107,7 +116,6 @@ const clientSecretField = document.querySelector<HTMLLabelElement>("#client-secr
 const clientSecretInput = document.querySelector<HTMLInputElement>("#client-secret")!;
 const settingsSaveButton = document.querySelector<HTMLButtonElement>("#settings-save-btn")!;
 const disconnectButton = document.querySelector<HTMLButtonElement>("#disconnect-btn")!;
-const settingsStatus = document.querySelector<HTMLParagraphElement>("#settings-status")!;
 
 // refresh_token isn't edited via any form field — it's obtained/persisted by the Rust side once
 // an OAuth2 client_credentials exchange succeeds. Tracked here purely so saving the Connection
@@ -116,31 +124,24 @@ let currentRefreshToken = "";
 
 const embeddingsBadge = document.querySelector<HTMLSpanElement>("#embeddings-badge")!;
 const embeddingsForm = document.querySelector<HTMLFormElement>("#embeddings-form")!;
-const embedSettingsModelSelect = document.querySelector<HTMLSelectElement>("#embed-settings-model")!;
+const embedSettingsProviderSelect = document.querySelector<HTMLSelectElement>("#embed-settings-provider")!;
+const embedSettingsModelInput = document.querySelector<HTMLInputElement>("#embed-settings-model")!;
+const embedSettingsModelDatalist = document.querySelector<HTMLDataListElement>("#embed-settings-model-list")!;
+const embedSettingsDimensionsSelect = document.querySelector<HTMLSelectElement>("#embed-settings-dimensions")!;
 const embedSettingsChunkSizeInput = document.querySelector<HTMLInputElement>("#embed-settings-chunk-size")!;
 const embedSettingsChunkOverlapInput = document.querySelector<HTMLInputElement>("#embed-settings-chunk-overlap")!;
+const embedSettingsBaseUrlField = document.querySelector<HTMLLabelElement>("#embed-settings-base-url-field")!;
+const embedSettingsBaseUrlInput = document.querySelector<HTMLInputElement>("#embed-settings-base-url")!;
+const embedSettingsBaseUrlHint = document.querySelector<HTMLParagraphElement>("#embed-settings-base-url-hint")!;
+const embedSettingsApiKeyField = document.querySelector<HTMLLabelElement>("#embed-settings-api-key-field")!;
 const embedSettingsApiKeyInput = document.querySelector<HTMLInputElement>("#embed-settings-api-key")!;
 const embedSettingsApiKeyToggle = document.querySelector<HTMLButtonElement>("#embed-settings-api-key-toggle")!;
-const embedSettingsApiKeyLabel = document.querySelector<HTMLSpanElement>("#embed-settings-api-key-label")!;
 const embeddingsSaveButton = document.querySelector<HTMLButtonElement>("#embeddings-save-btn")!;
 const embeddingsRemoveButton = document.querySelector<HTMLButtonElement>("#embeddings-remove-btn")!;
 const embeddingsFormStatus = document.querySelector<HTMLParagraphElement>("#embeddings-form-status")!;
 const embeddingsDisabledHint = document.querySelector<HTMLParagraphElement>("#embeddings-disabled-hint")!;
-const embedSettingsDimensions = document.querySelector<HTMLSpanElement>("#embed-settings-dimensions")!;
-
-const searchSettingsForm = document.querySelector<HTMLFormElement>("#search-settings-form")!;
-const rerankEnabledCheckbox = document.querySelector<HTMLInputElement>("#rerank-enabled")!;
-const rerankModelSelect = document.querySelector<HTMLSelectElement>("#rerank-model")!;
-const denseKInput = document.querySelector<HTMLInputElement>("#dense-k")!;
-const sparseKInput = document.querySelector<HTMLInputElement>("#sparse-k")!;
-const rerankCandidatesInput = document.querySelector<HTMLInputElement>("#rerank-candidates")!;
-const rrfKInput = document.querySelector<HTMLInputElement>("#rrf-k")!;
-const searchSettingsSaveButton = document.querySelector<HTMLButtonElement>("#search-settings-save-btn")!;
-const searchSettingsStatus = document.querySelector<HTMLParagraphElement>("#search-settings-status")!;
-
-const voyageInstructionsButton = document.querySelector<HTMLButtonElement>("#voyage-instructions-btn")!;
-const voyageInstructionsOverlay = document.querySelector<HTMLDivElement>("#voyage-instructions-overlay")!;
-const voyageInstructionsClose = document.querySelector<HTMLButtonElement>("#voyage-instructions-close")!;
+const embeddingsLockedHint = document.querySelector<HTMLParagraphElement>("#embed-settings-locked-hint")!;
+const embedSettingsModelFetchHint = document.querySelector<HTMLParagraphElement>("#embed-settings-model-fetch-hint")!;
 
 const statusBanner = document.querySelector<HTMLDivElement>("#status-banner")!;
 
@@ -150,14 +151,49 @@ const createLibraryForm = document.querySelector<HTMLFormElement>("#create-libra
 const cancelCreateLibraryButton = document.querySelector<HTMLButtonElement>("#cancel-create-library")!;
 const nameInput = document.querySelector<HTMLInputElement>("#lib-name")!;
 const descriptionInput = document.querySelector<HTMLInputElement>("#lib-description")!;
-const createLibraryStatus = document.querySelector<HTMLParagraphElement>("#create-library-status")!;
 
 const librariesList = document.querySelector<HTMLDivElement>("#libraries-list")!;
 
 const expandedLibraryIds = new Set<string>();
 let cachedLibraries: Library[] = [];
-let defaultEmbeddingProvider = "";
-let defaultRerankProvider = "";
+// Tracks whatever card-body element is currently mounted for each expanded library, looked up
+// fresh on every poll tick (never captured in a closure) — so an in-flight upload's progress
+// keeps rendering into the right place even if the library card gets torn down and rebuilt in
+// the meantime (collapse/re-expand, a library list refresh triggered elsewhere, etc.).
+const libraryDocBodies = new Map<string, HTMLElement>();
+const activeDocumentPolls = new Map<string, ReturnType<typeof setInterval>>();
+// Last real document list fetched per library — lets an optimistic placeholder be re-rendered
+// alongside real data without needing its own network round trip.
+const lastKnownDocuments = new Map<string, LibraryDocument[]>();
+// Filenames shown as "Uploading" placeholders before the server has a real document row for
+// them yet — cleared once the corresponding filename shows up in a real fetch.
+const pendingUploadFilenames = new Map<string, Set<string>>();
+// Document ids currently being retried — shown as "Retrying" instead of their last-fetched
+// "failed" status. Retry is async server-side (status flips to "processing" on a background
+// thread after the POST already returned), so a poll right after clicking retry can still see
+// the stale "failed" status; cleared once a fetch shows the document has actually moved off it.
+const pendingRetryDocumentIds = new Map<string, Set<string>>();
+// Cached in full so provider-select changes can be recomputed client-side without a network
+// round trip.
+let embeddingOptions: EmbeddingOptions | null = null;
+// Mirrors setEmbeddingsFormEnabled's "enabled" input — tracked as state (not just read off a
+// field's current .disabled) so refreshEmbeddingsGating can recompute from scratch every time.
+let embeddingsConnectionOk = false;
+// Mirrors applyEmbeddingLockState's "identityLocked" input, same reason.
+let currentIdentityLocked = false;
+// The provider a real, saved config currently exists for (null if unconfigured) — lets
+// refreshEmbeddingsGating treat "already has a key saved server-side" as satisfying the
+// api-key/base-url prerequisite without requiring it to be re-typed, but only while the selected
+// provider hasn't changed out from under that saved config.
+let currentConfiguredProvider: string | null = null;
+// Last successful live model-listing result per provider — populateModelDatalist reads from this
+// on every gating refresh (e.g. every keystroke) without re-fetching; only scheduleModelFetch's
+// debounced call ever writes to it.
+const liveModelsByProvider = new Map<string, string[]>();
+let modelFetchDebounceTimer: ReturnType<typeof setTimeout> | undefined;
+// Bumped on every new fetch attempt so a slow, superseded request can recognize it's stale and
+// discard its result instead of clobbering whatever a more recent request already rendered.
+let modelFetchRequestToken = 0;
 
 function setExpanded(el: HTMLElement, chevronEl: HTMLElement, expanded: boolean) {
   el.hidden = !expanded;
@@ -187,33 +223,6 @@ function initPasswordToggle(inputId: string, toggleId: string) {
   });
 }
 
-// .flyout-overlay animates via opacity/visibility (see styles.css), not display — but the overlay
-// starts with the `hidden` attribute, which forces display:none regardless of the .open class.
-// Toggling only the class (as this used to do) left it permanently display:none, so nothing ever
-// showed. Removing `hidden` on open (before adding .open, via double rAF so the browser registers
-// the pre-transition state first) and restoring it after the close transition finishes keeps the
-// slide/fade animation working correctly in both directions.
-const FLYOUT_TRANSITION_MS = 200;
-
-function initFlyout(buttonEl: HTMLButtonElement, overlayEl: HTMLDivElement, closeEl: HTMLButtonElement) {
-  const open = () => {
-    overlayEl.hidden = false;
-    requestAnimationFrame(() => requestAnimationFrame(() => overlayEl.classList.add("open")));
-  };
-  const close = () => {
-    overlayEl.classList.remove("open");
-    setTimeout(() => { overlayEl.hidden = true; }, FLYOUT_TRANSITION_MS);
-  };
-  buttonEl.addEventListener("click", open);
-  closeEl.addEventListener("click", close);
-  overlayEl.addEventListener("click", (event) => {
-    if (event.target === overlayEl) close();
-  });
-  document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape") close();
-  });
-}
-
 function renderBanner(message: string) {
   statusBanner.innerHTML = `
     <div class="banner banner-warning">
@@ -228,6 +237,28 @@ function renderBanner(message: string) {
 
 function clearBanner() {
   statusBanner.innerHTML = "";
+}
+
+const toastContainer = document.querySelector<HTMLDivElement>("#toast-container")!;
+
+// Non-blocking confirmation of a CRUD action's outcome — replaces the old pattern of writing
+// "Saved."/"Deleted."/an error into a <p> that sat next to the button until the next action
+// overwrote it. Errors linger longer than success, but everything is also click-to-dismiss.
+function showToast(message: string, kind: "success" | "error" = "success") {
+  const toast = document.createElement("div");
+  toast.className = `toast toast-${kind}`;
+  toast.textContent = message;
+  toast.addEventListener("click", () => dismissToast(toast));
+  toastContainer.appendChild(toast);
+
+  requestAnimationFrame(() => requestAnimationFrame(() => toast.classList.add("toast-visible")));
+  setTimeout(() => dismissToast(toast), kind === "error" ? 6000 : 3500);
+}
+
+function dismissToast(toast: HTMLDivElement) {
+  if (!toast.isConnected) return;
+  toast.classList.remove("toast-visible");
+  setTimeout(() => toast.remove(), 200);
 }
 
 // The badge reflects a VERIFIED connection (a real round-trip to rag-api), not just "a non-empty
@@ -286,7 +317,6 @@ settingsForm.addEventListener("submit", async (event) => {
   };
   try {
     await invoke("save_config", { config });
-    settingsStatus.textContent = "Saved.";
     setConnectionBadge(hasCredentials(config) ? "checking" : "not_configured");
     if (hasCredentials(config)) {
       // Exchanges the new client_id/secret for an access token (and, since the requested scope
@@ -298,163 +328,339 @@ settingsForm.addEventListener("submit", async (event) => {
         // refetch so this stays in sync and the next save doesn't clobber it with a stale value.
         currentRefreshToken = (await invoke<AppConfig>("get_config")).refresh_token;
       } catch (authError) {
-        settingsStatus.textContent = `Saved, but authentication failed: ${parseError(authError).message}`;
+        showToast(`Saved, but authentication failed: ${parseError(authError).message}`, "error");
         setConnectionBadge("invalid");
         setEmbeddingsFormEnabled(false, "Configure your connection above first.");
-        setSearchSettingsFormEnabled(false);
         return;
       }
+      showToast("Connection saved.");
       await loadEmbeddingOptions();
       await loadEmbeddingSettingsIntoForm();
-      await loadRerankOptions();
-      await loadSearchSettingsIntoForm();
     } else {
+      showToast("Connection saved.");
       setEmbeddingsFormEnabled(false, "Configure your connection above first.");
-      setSearchSettingsFormEnabled(false);
     }
     await checkStatusAndLoad();
   } catch (error) {
-    settingsStatus.textContent = `Error: ${parseError(error).message}`;
+    showToast(`Error saving connection: ${parseError(error).message}`, "error");
   }
 });
 
 disconnectButton.addEventListener("click", async () => {
-  if (!window.confirm("Disconnect from the Knowledge API? You'll need to re-enter Client ID and Client Secret to reconnect.")) return;
+  const confirmed = await confirm(
+    "Disconnect from the Knowledge API? You'll need to re-enter Client ID and Client Secret to reconnect.",
+    { title: "Disconnect", kind: "warning" },
+  );
+  if (!confirmed) return;
   try {
     await invoke("disconnect");
     clientIdInput.value = "";
     clientSecretInput.value = "";
     currentRefreshToken = "";
-    settingsStatus.textContent = "Disconnected.";
     setConnectionBadge("not_configured");
     setEmbeddingsFormEnabled(false, "Configure your connection above first.");
-    setSearchSettingsFormEnabled(false);
     librariesList.innerHTML = "";
     renderBanner("Not connected — configure your API connection first.");
+    showToast("Disconnected.");
   } catch (error) {
-    settingsStatus.textContent = `Error: ${parseError(error).message}`;
+    showToast(`Error disconnecting: ${parseError(error).message}`, "error");
   }
 });
+
+function formatProviderLabel(name: string): string {
+  return name.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+// Every provider-dependent bit of the form (base URL visibility/requiredness, whether an API key
+// field even applies) is data-driven off this, never a hardcoded check against a specific
+// provider name. Hiding a field also clears it and drops its `required` — switching providers
+// must never leave a stale, invisible value able to sneak into the next save, and a hidden
+// field must never stay `required` (relying on browsers skipping validation on non-rendered
+// elements would work by accident, not by being correctly coded).
+function applyProviderMeta(provider: EmbeddingProviderOption) {
+  embedSettingsBaseUrlField.hidden = !provider.base_url_supported;
+  embedSettingsBaseUrlHint.hidden = !provider.base_url_supported;
+  embedSettingsBaseUrlInput.required = provider.base_url_supported && provider.base_url_required;
+  if (!provider.base_url_supported) embedSettingsBaseUrlInput.value = "";
+  // Only ollama has a default_base_url — the static HTML placeholder was written for it and
+  // would otherwise stay stuck showing an Ollama-specific hint on a field that's actually
+  // required for a different provider (e.g. openai_compatible, which has no universal default).
+  embedSettingsBaseUrlInput.placeholder = provider.default_base_url ?? "https://your-endpoint.example.com";
+
+  embedSettingsApiKeyField.hidden = !provider.api_key_required;
+  embedSettingsApiKeyInput.required = provider.api_key_required;
+  if (!provider.api_key_required) embedSettingsApiKeyInput.value = "";
+}
+
+// Common embedding vector sizes across widely-used models (MiniLM/nomic-embed-text at 384/768,
+// OpenAI's text-embedding-3-small/large at 1536/3072, Voyage/Cohere-class models around 1024,
+// etc.) — a picker over free-typing avoids a typo silently producing a broken embedding column,
+// since knowledge-api takes this value as-given with no way to validate it against the model.
+const STANDARD_EMBEDDING_DIMENSIONS = [256, 384, 512, 768, 1024, 1536, 2048, 3072, 4096];
+
+// Always includes the standard set, plus any dimensions the API's suggested_models presets use
+// (in case one falls outside the standard list) and whatever is currently selected/configured —
+// so loading an existing config never lands on a value that isn't actually in the list.
+function populateDimensionsOptions(selectedValue: number | null) {
+  const values = new Set(STANDARD_EMBEDDING_DIMENSIONS);
+  for (const preset of embeddingOptions?.suggested_models ?? []) values.add(preset.dimensions);
+  if (selectedValue != null) values.add(selectedValue);
+
+  const previousValue = embedSettingsDimensionsSelect.value;
+  embedSettingsDimensionsSelect.innerHTML = "";
+  for (const dim of Array.from(values).sort((a, b) => a - b)) {
+    const option = document.createElement("option");
+    option.value = String(dim);
+    option.textContent = String(dim);
+    embedSettingsDimensionsSelect.appendChild(option);
+  }
+  embedSettingsDimensionsSelect.value = selectedValue != null ? String(selectedValue) : previousValue;
+}
+
+// Model is a free-text input with a <datalist> of suggestions, not a closed dropdown — the API
+// explicitly accepts any model name for any provider (there's no validation against a fixed
+// list), so restricting it to a picker would remove real capability, especially for Voyage where
+// the only known name is one static preset and would otherwise never be able to move past it.
+// Live models (from POST /embedding-options/models, cached in liveModelsByProvider) take priority
+// when available for this provider; falls back to the static suggested_models preset otherwise
+// (Voyage, which has no listing capability, or before a fetch has completed). This only refreshes
+// the suggestion list — it never touches the input's current value, unlike a <select>'s options.
+function populateModelDatalist(providerName: string) {
+  const live = liveModelsByProvider.get(providerName);
+  const names =
+    live && live.length > 0
+      ? live
+      : (embeddingOptions?.suggested_models ?? []).filter((p) => p.provider === providerName).map((p) => p.model);
+
+  embedSettingsModelDatalist.innerHTML = "";
+  for (const name of names) {
+    const option = document.createElement("option");
+    option.value = name;
+    embedSettingsModelDatalist.appendChild(option);
+  }
+}
+
+// True once the currently-selected provider can actually be used: a provider is selected, and if
+// it requires an API key and/or connection URL, one is either freshly typed in or already saved
+// server-side for this exact provider (so re-opening an existing config doesn't demand the
+// write-only key be re-entered just to keep editing chunk_size).
+function embeddingPrerequisitesMet(): boolean {
+  const meta = embeddingOptions?.providers.find((p) => p.name === embedSettingsProviderSelect.value);
+  if (!meta) return false;
+  const alreadyConfigured =
+    currentConfiguredProvider !== null && currentConfiguredProvider === embedSettingsProviderSelect.value;
+  const apiKeyOk = !meta.api_key_required || embedSettingsApiKeyInput.value.trim() !== "" || alreadyConfigured;
+  const baseUrlOk = !meta.base_url_required || embedSettingsBaseUrlInput.value.trim() !== "" || alreadyConfigured;
+  return apiKeyOk && baseUrlOk;
+}
+
+// Fetching needs the actual credential VALUES (the endpoint has nothing else to send them with)
+// — unlike embeddingPrerequisitesMet, "already configured" doesn't count, since the real key is
+// write-only and never re-sent from a blank input. Providers without listing capability (Voyage)
+// never attempt this at all.
+function canAttemptModelFetch(meta: EmbeddingProviderOption | undefined): boolean {
+  if (!meta?.supports_model_listing) return false;
+  if (meta.api_key_required && !embedSettingsApiKeyInput.value.trim()) return false;
+  if (meta.base_url_required && !embedSettingsBaseUrlInput.value.trim()) return false;
+  return true;
+}
+
+// Debounced (the server rate-limits this to 10/min) — fires at most once per pause in typing,
+// not on every keystroke. Called from refreshEmbeddingsGating, so every place that already
+// re-evaluates gating (provider switch, api-key/base-url typing, initial load) also considers a
+// fetch, without needing its own separate wiring at each call site.
+function scheduleModelFetch() {
+  if (modelFetchDebounceTimer) clearTimeout(modelFetchDebounceTimer);
+  modelFetchDebounceTimer = setTimeout(() => void fetchLiveModels(), 600);
+}
+
+async function fetchLiveModels() {
+  const providerName = embedSettingsProviderSelect.value;
+  const meta = embeddingOptions?.providers.find((p) => p.name === providerName);
+  if (!embeddingsConnectionOk || !canAttemptModelFetch(meta)) return;
+
+  const requestToken = ++modelFetchRequestToken;
+  const payload: Record<string, unknown> = { provider: providerName };
+  if (!embedSettingsApiKeyField.hidden && embedSettingsApiKeyInput.value) {
+    payload.api_key = embedSettingsApiKeyInput.value;
+  }
+  if (!embedSettingsBaseUrlField.hidden && embedSettingsBaseUrlInput.value) {
+    payload.base_url = embedSettingsBaseUrlInput.value;
+  }
+
+  embedSettingsModelFetchHint.hidden = false;
+  embedSettingsModelFetchHint.textContent = "Fetching models…";
+  try {
+    const result = await invoke<{ models: string[] }>("list_embedding_models", { payload });
+    if (requestToken !== modelFetchRequestToken) return; // superseded by a newer request
+    liveModelsByProvider.set(providerName, result.models);
+    populateModelDatalist(providerName);
+    embedSettingsModelFetchHint.hidden = result.models.length > 0;
+    if (result.models.length === 0) embedSettingsModelFetchHint.textContent = "No models returned by the provider.";
+  } catch (error) {
+    if (requestToken !== modelFetchRequestToken) return;
+    embedSettingsModelFetchHint.hidden = false;
+    embedSettingsModelFetchHint.textContent = `Could not fetch models: ${parseError(error).message}`;
+  }
+}
+
+// Model, Dimensions, Chunk size/overlap, and Save all gate on this — recomputed fully from
+// scratch on every relevant change (provider switch, api-key/base-url typing, connection status,
+// chunk-existence lock), never just added to, since prerequisites can become newly *satisfied* as
+// the user types, not just newly unsatisfied.
+function refreshEmbeddingsGating() {
+  populateModelDatalist(embedSettingsProviderSelect.value);
+
+  const prereqsMet = embeddingPrerequisitesMet();
+  const modelFieldsReady = embeddingsConnectionOk && prereqsMet && !currentIdentityLocked;
+  const saveReady = embeddingsConnectionOk && prereqsMet;
+
+  embedSettingsModelInput.disabled = !modelFieldsReady;
+  embedSettingsDimensionsSelect.disabled = !modelFieldsReady;
+  embedSettingsChunkSizeInput.disabled = !saveReady;
+  embedSettingsChunkOverlapInput.disabled = !saveReady;
+  embeddingsSaveButton.disabled = !saveReady;
+
+  // A provider without listing capability (e.g. Voyage — no list_models() adapter method at all)
+  // will never produce a live result no matter what's typed, so say so explicitly instead of
+  // silently doing nothing when credentials are entered — that reads as broken, not "unsupported."
+  const meta = embeddingOptions?.providers.find((p) => p.name === embedSettingsProviderSelect.value);
+  if (meta && !meta.supports_model_listing) {
+    embedSettingsModelFetchHint.hidden = false;
+    embedSettingsModelFetchHint.textContent =
+      "This provider doesn't support listing its own models — showing the suggested model only.";
+    return;
+  }
+  embedSettingsModelFetchHint.hidden = true;
+
+  scheduleModelFetch();
+}
+
+embedSettingsProviderSelect.addEventListener("change", () => {
+  const meta = embeddingOptions?.providers.find((p) => p.name === embedSettingsProviderSelect.value);
+  if (meta) applyProviderMeta(meta);
+  refreshEmbeddingsGating();
+});
+embedSettingsApiKeyInput.addEventListener("input", refreshEmbeddingsGating);
+embedSettingsBaseUrlInput.addEventListener("input", refreshEmbeddingsGating);
 
 async function loadEmbeddingOptions() {
   try {
     const options = await invoke<EmbeddingOptions>("get_embedding_options");
-    defaultEmbeddingProvider = options.default_provider;
+    embeddingOptions = options;
 
-    embedSettingsModelSelect.innerHTML = "";
+    embedSettingsProviderSelect.innerHTML = "";
     for (const provider of options.providers) {
-      for (const model of provider.models) {
-        const option = document.createElement("option");
-        option.value = model;
-        option.textContent = `${provider.name} / ${model}`;
-        embedSettingsModelSelect.appendChild(option);
-      }
+      const option = document.createElement("option");
+      option.value = provider.name;
+      option.textContent = formatProviderLabel(provider.name);
+      embedSettingsProviderSelect.appendChild(option);
     }
-    embedSettingsDimensions.textContent = String(options.dimensions);
+    if (!embedSettingsProviderSelect.value) {
+      embedSettingsProviderSelect.value = options.default_provider;
+    }
+
+    populateModelDatalist(embedSettingsProviderSelect.value);
+    populateDimensionsOptions(null);
+
+    const meta = options.providers.find((p) => p.name === embedSettingsProviderSelect.value);
+    if (meta) applyProviderMeta(meta);
   } catch (error) {
     embeddingsFormStatus.textContent = `Could not load embedding options: ${parseError(error).message}`;
   }
 }
 
-async function loadRerankOptions() {
-  try {
-    const options = await invoke<RerankOptions>("get_rerank_options");
-    defaultRerankProvider = options.default_provider;
-    rerankModelSelect.innerHTML = "";
-    for (const provider of options.providers) {
-      for (const model of provider.models) {
-        const option = document.createElement("option");
-        option.value = model;
-        option.textContent = `${provider.name} / ${model}`;
-        rerankModelSelect.appendChild(option);
-      }
-    }
-  } catch (error) {
-    searchSettingsStatus.textContent = `Could not load rerank options: ${parseError(error).message}`;
-  }
-}
-
-// Same gating as the Embeddings form — only enabled once we've round-tripped to the API.
-function setSearchSettingsFormEnabled(enabled: boolean) {
-  rerankEnabledCheckbox.disabled = !enabled;
-  rerankModelSelect.disabled = !enabled;
-  denseKInput.disabled = !enabled;
-  sparseKInput.disabled = !enabled;
-  rerankCandidatesInput.disabled = !enabled;
-  rrfKInput.disabled = !enabled;
-  searchSettingsSaveButton.disabled = !enabled;
-}
-
-async function loadSearchSettingsIntoForm() {
-  try {
-    const settings = await invoke<SearchSettingsStatus>("get_search_settings");
-    rerankEnabledCheckbox.checked = settings.rerank_enabled;
-    rerankModelSelect.value = settings.rerank_model;
-    denseKInput.value = String(settings.dense_k);
-    sparseKInput.value = String(settings.sparse_k);
-    rerankCandidatesInput.value = String(settings.rerank_candidates);
-    rrfKInput.value = String(settings.rrf_k);
-    setSearchSettingsFormEnabled(true);
-  } catch (error) {
-    searchSettingsStatus.textContent = `Could not reach the API: ${parseError(error).message}`;
-    setSearchSettingsFormEnabled(false);
-  }
-}
-
-searchSettingsForm.addEventListener("submit", async (event) => {
-  event.preventDefault();
-  try {
-    await invoke<SearchSettingsStatus>("save_search_settings", {
-      payload: {
-        rerank_enabled: rerankEnabledCheckbox.checked,
-        rerank_provider: defaultRerankProvider,
-        rerank_model: rerankModelSelect.value,
-        dense_k: Number(denseKInput.value),
-        sparse_k: Number(sparseKInput.value),
-        rerank_candidates: Number(rerankCandidatesInput.value),
-        rrf_k: Number(rrfKInput.value),
-      },
-    });
-    searchSettingsStatus.textContent = "Saved.";
-  } catch (error) {
-    searchSettingsStatus.textContent = `Error: ${parseError(error).message}`;
-  }
-});
-
 // The Embeddings form is only enabled once we've actually round-tripped to the API and back —
-// not just because a connection API key string exists locally, which could be stale/wrong.
+// not just because a connection is locally saved, which could be stale/wrong. Model, Dimensions,
+// Chunk size/overlap, and Save are owned by refreshEmbeddingsGating (they additionally depend on
+// api-key/base-url prerequisites, not just connection status), so only recorded into
+// embeddingsConnectionOk here and left to that function rather than set directly.
 function setEmbeddingsFormEnabled(enabled: boolean, hint?: string) {
-  embedSettingsModelSelect.disabled = !enabled;
-  embedSettingsChunkSizeInput.disabled = !enabled;
-  embedSettingsChunkOverlapInput.disabled = !enabled;
+  embeddingsConnectionOk = enabled;
+  embedSettingsProviderSelect.disabled = !enabled;
+  embedSettingsBaseUrlInput.disabled = !enabled;
   embedSettingsApiKeyInput.disabled = !enabled;
   embedSettingsApiKeyToggle.disabled = !enabled;
-  embeddingsSaveButton.disabled = !enabled;
   embeddingsRemoveButton.disabled = !enabled;
   embeddingsDisabledHint.hidden = enabled;
   if (hint) embeddingsDisabledHint.textContent = hint;
+  refreshEmbeddingsGating();
 }
 
-// Mirrors pragna2's EmbeddingKeySection: once a key is already configured, the field
-// label and submit button read "Replace key" instead of "API key"/"Save key", and a
-// "Remove" action appears to clear it.
-function setEmbeddingsConfiguredState(configured: boolean) {
-  embedSettingsApiKeyLabel.textContent = configured ? "Replace key" : "API key";
-  embeddingsSaveButton.textContent = configured ? "Replace key" : "Save key";
+// knowledge-api locks provider/model/base_url/dimensions together (its "model identity") the
+// moment any chunk exists anywhere across every library — chunk_size, chunk_overlap, and api_key
+// stay changeable regardless. There's no field on GET /embedding-settings that reports this
+// directly, so it's inferred here from the same fact the server itself checks (a nonzero global
+// chunk count) via the already-loaded library list.
+function anyChunksExist(): boolean {
+  return cachedLibraries.some((lib) => lib.chunk_count > 0);
+}
+
+// Applied on top of setEmbeddingsFormEnabled(true) — only re-disables provider/base_url here;
+// Model/Dimensions are also identity-locked, but that's applied inside refreshEmbeddingsGating
+// (via currentIdentityLocked) since they need to be recomputed alongside the api-key/base-url
+// prerequisite check, not just this lock.
+//
+// identityLocked mirrors the server's own rule exactly (existing config + a real identity change
+// + chunks>0), gating provider/model/dimensions/base_url.
+function applyEmbeddingLockState(identityLocked: boolean) {
+  currentIdentityLocked = identityLocked;
+  embedSettingsProviderSelect.disabled ||= identityLocked;
+  embedSettingsBaseUrlInput.disabled ||= identityLocked;
+  embeddingsLockedHint.hidden = !identityLocked;
+  refreshEmbeddingsGating();
+}
+
+// The delete button's hidden and disabled state are computed together, from the same two
+// booleans, in exactly one place — hidden and disabled used to be set independently by different
+// functions (setEmbeddingsFormEnabled unconditionally re-enabling it, a separate lock-state
+// function only ever adding disabling back on top), which could leave it enabled while
+// unconfigured since nothing re-derived "enabled" from "configured" after the fact. Delete only
+// ever makes sense when there's something configured to delete AND no chunk exists anywhere to
+// protect (matches applyEmbeddingLockState's rule against reset-as-a-loophole).
+function applyEmbeddingDeleteButtonState(configured: boolean, chunksExist: boolean) {
   embeddingsRemoveButton.hidden = !configured;
+  embeddingsRemoveButton.disabled = !configured || chunksExist;
+}
+
+function populateEmbeddingSettingsForm(status: EmbeddingSettingsStatus) {
+  embeddingsBadge.textContent = status.configured ? "Configured" : "Not configured";
+  currentConfiguredProvider = status.configured ? status.provider : null;
+
+  // With exactly one enabled provider there's nothing to actually pick — default straight to it,
+  // and to its suggested model/dimensions too, so a fresh single-provider deployment arrives
+  // ready to just click Save instead of requiring the user to fill in a foregone conclusion.
+  const soleProvider = embeddingOptions?.providers.length === 1 ? embeddingOptions.providers[0] : null;
+  const soleProviderPreset = soleProvider
+    ? (embeddingOptions?.suggested_models.find((p) => p.provider === soleProvider.name) ?? null)
+    : null;
+
+  const providerValue = status.provider ?? soleProvider?.name;
+  if (providerValue) embedSettingsProviderSelect.value = providerValue;
+
+  populateModelDatalist(embedSettingsProviderSelect.value);
+  embedSettingsModelInput.value = status.model ?? (!status.configured ? (soleProviderPreset?.model ?? "") : "");
+  populateDimensionsOptions(
+    status.dimensions ?? (!status.configured ? soleProviderPreset?.dimensions : undefined) ?? null,
+  );
+
+  embedSettingsChunkSizeInput.value = String(status.chunk_size);
+  embedSettingsChunkOverlapInput.value = String(status.chunk_overlap);
+  embedSettingsBaseUrlInput.value = status.base_url ?? "";
+  embedSettingsApiKeyInput.value = "";
+
+  const meta = embeddingOptions?.providers.find((p) => p.name === embedSettingsProviderSelect.value);
+  if (meta) applyProviderMeta(meta);
 }
 
 async function loadEmbeddingSettingsIntoForm() {
   try {
     const status = await invoke<EmbeddingSettingsStatus>("get_embedding_settings");
-    embeddingsBadge.textContent = status.configured ? "Configured" : "Not configured";
-    setEmbeddingsConfiguredState(status.configured);
-    if (status.model) {
-      embedSettingsModelSelect.value = status.model;
-    }
-    embedSettingsChunkSizeInput.value = String(status.chunk_size);
-    embedSettingsChunkOverlapInput.value = String(status.chunk_overlap);
+    populateEmbeddingSettingsForm(status);
     setEmbeddingsFormEnabled(true);
+    const chunksExist = anyChunksExist();
+    applyEmbeddingLockState(status.configured && chunksExist);
+    applyEmbeddingDeleteButtonState(status.configured, chunksExist);
   } catch (error) {
     embeddingsBadge.textContent = "Not configured";
     setEmbeddingsFormEnabled(false, `Could not reach the API: ${parseError(error).message}`);
@@ -464,40 +670,50 @@ async function loadEmbeddingSettingsIntoForm() {
 embeddingsForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   try {
-    const status = await invoke<EmbeddingSettingsStatus>("save_embedding_settings", {
-      payload: {
-        provider: defaultEmbeddingProvider,
-        model: embedSettingsModelSelect.value,
-        api_key: embedSettingsApiKeyInput.value,
-        chunk_size: Number(embedSettingsChunkSizeInput.value),
-        chunk_overlap: Number(embedSettingsChunkOverlapInput.value),
-      },
-    });
-    embeddingsFormStatus.textContent = "Saved.";
-    embeddingsBadge.textContent = status.configured ? "Configured" : "Not configured";
-    setEmbeddingsConfiguredState(status.configured);
-    embedSettingsChunkSizeInput.value = String(status.chunk_size);
-    embedSettingsChunkOverlapInput.value = String(status.chunk_overlap);
-    embedSettingsApiKeyInput.value = "";
+    const payload: Record<string, unknown> = {
+      provider: embedSettingsProviderSelect.value,
+      model: embedSettingsModelInput.value,
+      dimensions: Number(embedSettingsDimensionsSelect.value),
+      chunk_size: Number(embedSettingsChunkSizeInput.value),
+      chunk_overlap: Number(embedSettingsChunkOverlapInput.value),
+    };
+    // Guarded on the field's own hidden state, not just a truthy .value — applyProviderMeta
+    // clears both when they're hidden, but checking hidden here too means a stale value can
+    // never reach the payload even if that invariant were ever broken elsewhere.
+    if (!embedSettingsApiKeyField.hidden && embedSettingsApiKeyInput.value) {
+      payload.api_key = embedSettingsApiKeyInput.value;
+    }
+    if (!embedSettingsBaseUrlField.hidden && embedSettingsBaseUrlInput.value) {
+      payload.base_url = embedSettingsBaseUrlInput.value;
+    }
+    const status = await invoke<EmbeddingSettingsStatus>("save_embedding_settings", { payload });
+    showToast("Embedding configuration saved.");
+    populateEmbeddingSettingsForm(status);
+    const chunksExist = anyChunksExist();
+    applyEmbeddingLockState(status.configured && chunksExist);
+    applyEmbeddingDeleteButtonState(status.configured, chunksExist);
     await checkStatusAndLoad();
   } catch (error) {
-    embeddingsFormStatus.textContent = `Error: ${parseError(error).message}`;
+    showToast(`Error saving embedding configuration: ${parseError(error).message}`, "error");
   }
 });
 
 embeddingsRemoveButton.addEventListener("click", async () => {
-  if (!window.confirm("Remove the embedding key? Uploads and search will stop working until a new key is configured.")) return;
+  const confirmed = await confirm(
+    "Delete the embedding configuration? Uploads and search may be affected until reconfigured.",
+    { title: "Delete configuration", kind: "warning" },
+  );
+  if (!confirmed) return;
   try {
     const status = await invoke<EmbeddingSettingsStatus>("clear_embedding_settings");
-    embeddingsFormStatus.textContent = "Removed.";
-    embeddingsBadge.textContent = status.configured ? "Configured" : "Not configured";
-    setEmbeddingsConfiguredState(status.configured);
-    embedSettingsChunkSizeInput.value = String(status.chunk_size);
-    embedSettingsChunkOverlapInput.value = String(status.chunk_overlap);
-    embedSettingsApiKeyInput.value = "";
+    showToast("Embedding configuration deleted.");
+    populateEmbeddingSettingsForm(status);
+    const chunksExist = anyChunksExist();
+    applyEmbeddingLockState(status.configured && chunksExist);
+    applyEmbeddingDeleteButtonState(status.configured, chunksExist);
     await checkStatusAndLoad();
   } catch (error) {
-    embeddingsFormStatus.textContent = `Error: ${parseError(error).message}`;
+    showToast(`Error deleting embedding configuration: ${parseError(error).message}`, "error");
   }
 });
 
@@ -508,24 +724,24 @@ newLibraryButton.addEventListener("click", () => {
 cancelCreateLibraryButton.addEventListener("click", () => {
   createLibraryCard.hidden = true;
   createLibraryForm.reset();
-  createLibraryStatus.textContent = "";
 });
 
 createLibraryForm.addEventListener("submit", async (event) => {
   event.preventDefault();
+  const name = nameInput.value;
   try {
     await invoke("create_library", {
       payload: {
-        name: nameInput.value,
+        name,
         description: descriptionInput.value || null,
       },
     });
-    createLibraryStatus.textContent = "";
     createLibraryForm.reset();
     createLibraryCard.hidden = true;
+    showToast(`Library "${name}" created.`);
     await refreshLibraries();
   } catch (error) {
-    createLibraryStatus.textContent = `Error: ${parseError(error).message}`;
+    showToast(`Error creating library: ${parseError(error).message}`, "error");
   }
 });
 
@@ -563,7 +779,7 @@ async function checkStatusAndLoad() {
   try {
     const embeddingStatus = await invoke<EmbeddingSettingsStatus>("get_embedding_settings");
     if (!embeddingStatus.configured) {
-      renderBanner("Embeddings aren't configured — set an API key in Configuration to enable uploads and search.");
+      renderBanner("Embeddings aren't configured — check the Configuration tab to enable uploads and search.");
     }
   } catch {
     // Non-blocking check — if it fails, the library list already loaded fine, so just skip it.
@@ -618,18 +834,23 @@ function renderLibraryCard(library: Library): HTMLElement {
   actions.className = "library-actions";
   const deleteButton = document.createElement("button");
   deleteButton.type = "button";
-  deleteButton.className = "btn btn-icon";
+  deleteButton.className = "btn btn-danger btn-pill";
   deleteButton.title = "Delete library";
-  deleteButton.innerHTML = ICONS.x;
+  deleteButton.textContent = "Delete";
   deleteButton.addEventListener("click", async (event) => {
     event.stopPropagation();
-    if (!window.confirm(`Delete library "${library.name}"? This removes all its documents.`)) return;
+    const confirmed = await confirm(
+      `Delete library "${library.name}"? This removes all its documents.`,
+      { title: "Delete library", kind: "warning" },
+    );
+    if (!confirmed) return;
     try {
       await invoke("delete_library", { libraryId: library.id });
       expandedLibraryIds.delete(library.id);
+      showToast(`Library "${library.name}" deleted.`);
       await refreshLibraries();
     } catch (error) {
-      window.alert(`Error deleting library: ${parseError(error).message}`);
+      showToast(`Error deleting library: ${parseError(error).message}`, "error");
     }
   });
   actions.appendChild(deleteButton);
@@ -666,8 +887,74 @@ function renderLibraryCard(library: Library): HTMLElement {
   return card;
 }
 
-async function loadDocuments(library: Library, body: HTMLElement) {
-  body.innerHTML = `<p class="status-text">Loading documents...</p>`;
+function isDocumentInProgress(doc: LibraryDocument): boolean {
+  return doc.status !== "completed" && doc.status !== "failed";
+}
+
+function getPendingUploadSet(libraryId: string): Set<string> {
+  let pending = pendingUploadFilenames.get(libraryId);
+  if (!pending) {
+    pending = new Set();
+    pendingUploadFilenames.set(libraryId, pending);
+  }
+  return pending;
+}
+
+function getPendingRetrySet(libraryId: string): Set<string> {
+  let retrying = pendingRetryDocumentIds.get(libraryId);
+  if (!retrying) {
+    retrying = new Set();
+    pendingRetryDocumentIds.set(libraryId, retrying);
+  }
+  return retrying;
+}
+
+function basename(path: string): string {
+  return path.split(/[\\/]/).pop() || path;
+}
+
+function renderDocumentsInto(
+  body: HTMLElement,
+  library: Library,
+  documents: LibraryDocument[],
+  pendingFilenames: string[],
+  retryingIds: Set<string>,
+) {
+  body.innerHTML = "";
+  body.appendChild(renderUploadRow(library));
+
+  if (documents.length === 0 && pendingFilenames.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "empty-state";
+    empty.textContent = "No documents yet.";
+    body.appendChild(empty);
+  } else {
+    body.appendChild(renderDocTable(documents, library, pendingFilenames, retryingIds));
+  }
+}
+
+// Re-renders from whatever was last fetched (lastKnownDocuments) plus any outstanding upload
+// placeholders/retries — no network round trip. Used right after a file is picked or a retry is
+// clicked, so the grid updates immediately instead of waiting on the request or a later poll tick.
+function rerenderLibraryFromCache(library: Library) {
+  const body = libraryDocBodies.get(library.id);
+  if (!body || !expandedLibraryIds.has(library.id)) return;
+  const documents = lastKnownDocuments.get(library.id) ?? [];
+  const pending = Array.from(pendingUploadFilenames.get(library.id) ?? []);
+  const retrying = pendingRetryDocumentIds.get(library.id) ?? new Set<string>();
+  renderDocumentsInto(body, library, documents, pending, retrying);
+}
+
+// Single source of truth for document progress: re-fetches the list and re-renders it into
+// whichever body element is currently mounted for this library (via libraryDocBodies, not a
+// captured reference), then starts or stops a background poll depending on whether anything in
+// the list — or an outstanding upload/retry placeholder — is still non-terminal. Called on
+// initial expand, right after an upload or retry, and by the poll's own interval — so progress
+// survives collapsing/re-expanding the card, deleting a different library (which rebuilds every
+// card), or just leaving the tab and coming back.
+async function syncLibraryDocuments(library: Library) {
+  const body = libraryDocBodies.get(library.id);
+  if (!body || !expandedLibraryIds.has(library.id)) return;
 
   let documents: LibraryDocument[];
   try {
@@ -677,106 +964,310 @@ async function loadDocuments(library: Library, body: HTMLElement) {
     return;
   }
 
-  body.innerHTML = "";
+  lastKnownDocuments.set(library.id, documents);
 
-  if (documents.length === 0) {
-    const empty = document.createElement("div");
-    empty.className = "empty-state";
-    empty.textContent = "No documents yet.";
-    body.appendChild(empty);
-  } else {
-    const list = document.createElement("ul");
-    list.className = "doc-list";
+  // A placeholder's real document row has shown up server-side — the real row (real id, real
+  // status) takes over from here, so drop the placeholder to avoid showing both.
+  const pending = pendingUploadFilenames.get(library.id);
+  if (pending) {
+    for (const doc of documents) pending.delete(doc.source_filename);
+  }
+  const pendingList = Array.from(pending ?? []);
+
+  // A retried document has actually moved off "failed" server-side — stop overriding its badge.
+  const retrying = pendingRetryDocumentIds.get(library.id);
+  if (retrying) {
     for (const doc of documents) {
-      list.appendChild(renderDocRow(doc));
+      if (doc.status !== "failed") retrying.delete(doc.id);
     }
-    body.appendChild(list);
   }
 
-  body.appendChild(renderUploadRow(library, body));
+  renderDocumentsInto(body, library, documents, pendingList, retrying ?? new Set());
+
+  // Keep polling while a placeholder/retry is still outstanding too — otherwise, if the very
+  // first fetch right after upload or retry lands before the server has persisted the change,
+  // this list looks like nothing's in progress and the poll would never even start.
+  const inProgress =
+    documents.some(isDocumentInProgress) || pendingList.length > 0 || (retrying?.size ?? 0) > 0;
+  const existingPoll = activeDocumentPolls.get(library.id);
+  if (inProgress && !existingPoll) {
+    activeDocumentPolls.set(
+      library.id,
+      setInterval(() => syncLibraryDocuments(library), 1500),
+    );
+  } else if (!inProgress && existingPoll) {
+    clearInterval(existingPoll);
+    activeDocumentPolls.delete(library.id);
+    // Keeps the (possibly collapsed) card header's doc-count badge in sync now that
+    // ingestion has settled, without waiting for the user to manually refresh.
+    await refreshLibraries();
+  }
 }
 
-function renderDocRow(doc: LibraryDocument): HTMLElement {
-  const row = document.createElement("li");
-  row.className = "doc-row";
+async function loadDocuments(library: Library, body: HTMLElement) {
+  libraryDocBodies.set(library.id, body);
+  body.innerHTML = `<p class="status-text">Loading documents...</p>`;
+  await syncLibraryDocuments(library);
+}
 
-  const icon = document.createElement("span");
-  icon.className = "doc-icon";
-  icon.innerHTML = ICONS.fileText;
+function renderDocTable(
+  documents: LibraryDocument[],
+  library: Library,
+  pendingFilenames: string[],
+  retryingIds: Set<string>,
+): HTMLElement {
+  const wrap = document.createElement("div");
+  wrap.className = "doc-table-wrap";
 
-  const info = document.createElement("span");
-  info.className = "doc-info";
-  const statusSuffix = doc.status === "completed" ? "" : ` · ${doc.status}`;
-  info.innerHTML = `
-    <div class="doc-name">${doc.source_filename}</div>
-    <div class="doc-sub">${doc.file_type}${statusSuffix}</div>
+  const table = document.createElement("table");
+  table.className = "doc-table";
+  table.innerHTML = `
+    <thead>
+      <tr>
+        <th>File</th>
+        <th>Size</th>
+        <th>Chunks</th>
+        <th>Status</th>
+        <th></th>
+      </tr>
+    </thead>
   `;
 
-  row.appendChild(icon);
-  row.appendChild(info);
+  const tbody = document.createElement("tbody");
+  for (const filename of pendingFilenames) {
+    tbody.appendChild(renderPendingRow(filename));
+  }
+  for (const doc of documents) {
+    tbody.appendChild(renderDocRow(doc, library, retryingIds.has(doc.id)));
+  }
+  table.appendChild(tbody);
+
+  wrap.appendChild(table);
+  return wrap;
+}
+
+function renderPendingRow(filename: string): HTMLElement {
+  const row = document.createElement("tr");
+  row.className = "doc-row";
+
+  const fileCell = document.createElement("td");
+  fileCell.className = "doc-file-cell";
+  fileCell.innerHTML = `
+    <span class="doc-icon">${ICONS.fileText}</span>
+    <span class="doc-name-group">
+      <span class="doc-name" title="${filename}">${filename}</span>
+    </span>
+  `;
+
+  const sizeCell = document.createElement("td");
+  sizeCell.className = "doc-muted-cell";
+  sizeCell.textContent = "—";
+
+  const chunksCell = document.createElement("td");
+  chunksCell.className = "doc-muted-cell";
+  chunksCell.textContent = "—";
+
+  const statusCell = document.createElement("td");
+  statusCell.appendChild(renderStatusBadge("uploading"));
+
+  const actionsCell = document.createElement("td");
+  actionsCell.className = "doc-actions-cell";
+
+  row.appendChild(fileCell);
+  row.appendChild(sizeCell);
+  row.appendChild(chunksCell);
+  row.appendChild(statusCell);
+  row.appendChild(actionsCell);
   return row;
 }
 
-function renderUploadRow(library: Library, body: HTMLElement): HTMLElement {
+// knowledge-api enforces this via Flask's MAX_CONTENT_LENGTH (app/constants.py's MAX_UPLOAD_MB =
+// 50) but doesn't expose the limit through any API response — there's no endpoint to read it from
+// dynamically, so it's mirrored here as a named constant per the "inevitable exception" carve-out
+// (can't be sourced from the API, so it lives here, clearly named, instead of an inline literal).
+// If the server-side limit ever changes, this needs updating to match, or this client-side check
+// could reject files the server would actually accept (or let through ones it would now reject).
+const MAX_UPLOAD_SIZE_BYTES = 50 * 1024 * 1024;
+
+// bytes is speculative (see the size_bytes comment on LibraryDocument) — "—" until confirmed.
+function formatFileSize(bytes: number | null | undefined): string {
+  if (bytes == null) return "—";
+  if (bytes < 1024) return `${bytes} B`;
+  const kb = bytes / 1024;
+  if (kb < 1024) return `${kb < 10 ? kb.toFixed(1) : Math.round(kb)} KB`;
+  const mb = kb / 1024;
+  return `${mb < 10 ? mb.toFixed(1) : Math.round(mb)} MB`;
+}
+
+function renderStatusBadge(status: string): HTMLElement {
+  const badge = document.createElement("span");
+  if (status === "completed") {
+    badge.className = "doc-status doc-status-completed";
+    badge.textContent = "Completed";
+  } else if (status === "failed") {
+    badge.className = "doc-status doc-status-failed";
+    badge.textContent = "Failed";
+  } else {
+    badge.className = "doc-status doc-status-progress";
+    const spinner = document.createElement("span");
+    spinner.className = "doc-status-spinner";
+    const label = document.createElement("span");
+    label.textContent = status.charAt(0).toUpperCase() + status.slice(1);
+    badge.appendChild(spinner);
+    badge.appendChild(label);
+  }
+  return badge;
+}
+
+function renderDocRow(doc: LibraryDocument, library: Library, isRetrying: boolean): HTMLElement {
+  const row = document.createElement("tr");
+  row.className = "doc-row";
+
+  const fileCell = document.createElement("td");
+  fileCell.className = "doc-file-cell";
+  fileCell.innerHTML = `
+    <span class="doc-icon">${ICONS.fileText}</span>
+    <span class="doc-name-group">
+      <span class="doc-name" title="${doc.source_filename}">${doc.source_filename}</span>
+      <span class="doc-sub">${doc.file_type}</span>
+    </span>
+  `;
+
+  const sizeCell = document.createElement("td");
+  sizeCell.className = "doc-muted-cell";
+  sizeCell.textContent = formatFileSize(doc.size_bytes);
+
+  const chunksCell = document.createElement("td");
+  chunksCell.className = "doc-muted-cell";
+  chunksCell.textContent = doc.chunk_count != null ? String(doc.chunk_count) : "—";
+
+  const statusCell = document.createElement("td");
+  // Retry is async server-side — the document's own status can still read "failed" for a moment
+  // after retry is triggered, so override the badge here rather than wait for the real status.
+  const badge = isRetrying ? renderStatusBadge("retrying") : renderStatusBadge(doc.status);
+  if (!isRetrying && doc.status === "failed" && doc.error_message) {
+    badge.title = doc.error_message;
+  }
+  statusCell.appendChild(badge);
+
+  const actionsCell = document.createElement("td");
+  actionsCell.className = "doc-actions-cell";
+  const actions = document.createElement("span");
+  actions.className = "doc-actions";
+
+  if (!isRetrying && doc.status === "failed") {
+    const retryButton = document.createElement("button");
+    retryButton.type = "button";
+    retryButton.className = "btn btn-sm btn-primary";
+    retryButton.title = "Retry ingestion";
+    retryButton.textContent = "Retry";
+    retryButton.addEventListener("click", async () => {
+      getPendingRetrySet(library.id).add(doc.id);
+      rerenderLibraryFromCache(library);
+      try {
+        await invoke("retry_document", { libraryId: library.id, documentId: doc.id });
+        showToast(`Retrying "${doc.source_filename}"…`);
+        await syncLibraryDocuments(library);
+      } catch (error) {
+        getPendingRetrySet(library.id).delete(doc.id);
+        rerenderLibraryFromCache(library);
+        showToast(`Error retrying "${doc.source_filename}": ${parseError(error).message}`, "error");
+      }
+    });
+    actions.appendChild(retryButton);
+  }
+
+  const deleteButton = document.createElement("button");
+  deleteButton.type = "button";
+  deleteButton.className = "btn btn-danger btn-pill";
+  deleteButton.title = "Delete document";
+  deleteButton.textContent = "Delete";
+  deleteButton.addEventListener("click", async () => {
+    const confirmed = await confirm(
+      `Delete "${doc.source_filename}"? This removes it and its embeddings from this library.`,
+      { title: "Delete document", kind: "warning" },
+    );
+    if (!confirmed) return;
+    try {
+      await invoke("delete_document", { libraryId: library.id, documentId: doc.id });
+      showToast(`"${doc.source_filename}" deleted.`);
+      await syncLibraryDocuments(library);
+    } catch (error) {
+      showToast(`Error deleting document: ${parseError(error).message}`, "error");
+    }
+  });
+  actions.appendChild(deleteButton);
+  actionsCell.appendChild(actions);
+
+  row.appendChild(fileCell);
+  row.appendChild(sizeCell);
+  row.appendChild(chunksCell);
+  row.appendChild(statusCell);
+  row.appendChild(actionsCell);
+  return row;
+}
+
+function renderUploadRow(library: Library): HTMLElement {
   const wrapper = document.createElement("div");
+  wrapper.className = "doc-upload-wrap";
 
   const dropzone = document.createElement("button");
   dropzone.type = "button";
   dropzone.className = "dropzone";
-  dropzone.innerHTML = `<span class="dropzone-icon">${ICONS.upload}</span><span>Click to choose a file to upload</span>`;
-
-  const status = document.createElement("p");
-  status.className = "status-text";
+  dropzone.innerHTML = `<span class="dropzone-icon">${ICONS.upload}</span><span class="dropzone-title">Click to choose a file to upload</span><span class="dropzone-caption">Max file size: ${formatFileSize(MAX_UPLOAD_SIZE_BYTES)}</span>`;
 
   dropzone.addEventListener("click", async () => {
     const filePath = await open({ multiple: false });
     if (!filePath) return;
-    status.textContent = "Uploading...";
+    const filename = basename(filePath);
+
+    // Reject an oversized file before ever calling the API — knowledge-api enforces this via
+    // Flask's MAX_CONTENT_LENGTH and would otherwise just reject the request after the whole file
+    // is already read into memory and sent over the wire.
+    let fileSize: number;
     try {
-      const job = await invoke<{ job_id: string }>("upload_document", {
-        libraryId: library.id,
-        filePath,
-      });
-      pollJob(library, job.job_id, status, body);
+      fileSize = await invoke<number>("get_file_size", { filePath });
     } catch (error) {
-      status.textContent = `Error: ${parseError(error).message}`;
+      showToast(`Could not read "${filename}": ${parseError(error).message}`, "error");
+      return;
+    }
+    if (fileSize > MAX_UPLOAD_SIZE_BYTES) {
+      showToast(
+        `"${filename}" is ${formatFileSize(fileSize)}, which is over the ${formatFileSize(MAX_UPLOAD_SIZE_BYTES)} upload limit.`,
+        "error",
+      );
+      return;
+    }
+
+    // Optimistic: show it in the grid as "Uploading" immediately, before the request even goes
+    // out — this row (and this whole wrapper) is about to be torn down and rebuilt by that
+    // re-render, so nothing here holds onto it afterwards.
+    getPendingUploadSet(library.id).add(filename);
+    rerenderLibraryFromCache(library);
+
+    try {
+      await invoke("upload_document", { libraryId: library.id, filePath });
+      // From here on, the placeholder is cleared and progress is tracked by
+      // syncLibraryDocuments's poll once the real document row shows up.
+      await syncLibraryDocuments(library);
+    } catch (error) {
+      // The upload request itself failed outright — no document row will ever show up for this
+      // filename, so drop the placeholder and surface the error via toast instead of a status
+      // line, since there's no longer a row to attach one to.
+      getPendingUploadSet(library.id).delete(filename);
+      rerenderLibraryFromCache(library);
+      showToast(`Error uploading ${filename}: ${parseError(error).message}`, "error");
     }
   });
 
   wrapper.appendChild(dropzone);
-  wrapper.appendChild(status);
   return wrapper;
 }
 
-function pollJob(library: Library, jobId: string, statusEl: HTMLParagraphElement, body: HTMLElement) {
-  const interval = setInterval(async () => {
-    try {
-      const job = await invoke<{ status: string; error: string | null }>("get_job_status", {
-        libraryId: library.id,
-        jobId,
-      });
-      if (job.status === "completed" || job.status === "failed") {
-        clearInterval(interval);
-        statusEl.textContent = job.status === "failed" ? `Failed: ${job.error}` : "";
-        await refreshLibraries();
-        const updated = cachedLibraries.find((lib) => lib.id === library.id);
-        if (updated && expandedLibraryIds.has(library.id)) {
-          loadDocuments(updated, body);
-        }
-      } else {
-        statusEl.textContent = job.status;
-      }
-    } catch (error) {
-      statusEl.textContent = `Error: ${parseError(error).message}`;
-      clearInterval(interval);
-    }
-  }, 1500);
-}
-
-// Re-runs the full connection/embeddings/search-settings load, same sequence as startup. Used
-// by: the manual refresh button, opening the Configuration tab, and init() itself — there's
-// otherwise no way to recover from "app started before the API container did" short of a
-// restart, since everything below only ever ran once, at launch.
+// Re-runs the full connection/embeddings load, same sequence as startup. Used by: the manual
+// refresh button, opening the Configuration tab, and init() itself — there's otherwise no way to
+// recover from "app started before the API container did" short of a restart, since everything
+// below only ever ran once, at launch.
 async function refreshConnection() {
   const config = await invoke<AppConfig>("get_config");
   // Skip embeddings-related calls entirely until the connection itself is configured — otherwise
@@ -784,8 +1275,6 @@ async function refreshConnection() {
   if (hasCredentials(config)) {
     await loadEmbeddingOptions();
     await loadEmbeddingSettingsIntoForm();
-    await loadRerankOptions();
-    await loadSearchSettingsIntoForm();
   }
   await checkStatusAndLoad();
 }
@@ -816,7 +1305,6 @@ async function init() {
   initAccordion("embeddings-card-header", "embeddings-card-body", "embeddings-chevron");
   initPasswordToggle("client-secret", "client-secret-toggle");
   initPasswordToggle("embed-settings-api-key", "embed-settings-api-key-toggle");
-  initFlyout(voyageInstructionsButton, voyageInstructionsOverlay, voyageInstructionsClose);
   await loadSettingsIntoForm();
   await refreshConnection();
 }

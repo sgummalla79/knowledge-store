@@ -1,11 +1,8 @@
 use crate::config::{self, AppConfig};
+use crate::http_client::client;
 use crate::oauth_client::{self, TokenState};
 use serde_json::Value;
 use tauri::{AppHandle, State};
-
-fn client() -> reqwest::Client {
-    reqwest::Client::new()
-}
 
 async fn map_response(response: reqwest::Response) -> Result<Value, String> {
     let status = response.status();
@@ -98,6 +95,20 @@ pub async fn get_embedding_options(app: AppHandle, tokens: State<'_, TokenState>
     map_response(response).await
 }
 
+/// Live, credentialed call — queries the provider itself (via knowledge-api) for its actual
+/// available models, using an api_key/base_url the user may not have saved yet. Not cached
+/// server-side; rate-limited to 10/min there, so the frontend debounces before calling this.
+#[tauri::command]
+pub async fn list_embedding_models(app: AppHandle, payload: Value, tokens: State<'_, TokenState>) -> Result<Value, String> {
+    let cfg = config::load_config(&app);
+    let url = format!("{}/embedding-options/models", cfg.api_base_url);
+    let response = send_with_retry(&app, &tokens, &cfg, |name, value| {
+        client().post(&url).header(name, value).json(&payload)
+    })
+    .await?;
+    map_response(response).await
+}
+
 #[tauri::command]
 pub async fn list_libraries(app: AppHandle, tokens: State<'_, TokenState>) -> Result<Value, String> {
     let cfg = config::load_config(&app);
@@ -135,6 +146,48 @@ pub async fn list_documents(app: AppHandle, library_id: String, tokens: State<'_
     let url = format!("{}/libraries/{}/documents", cfg.api_base_url, library_id);
     let response = send_with_retry(&app, &tokens, &cfg, |name, value| client().get(&url).header(name, value)).await?;
     map_response(response).await
+}
+
+#[tauri::command]
+pub async fn delete_document(
+    app: AppHandle,
+    library_id: String,
+    document_id: String,
+    tokens: State<'_, TokenState>,
+) -> Result<(), String> {
+    let cfg = config::load_config(&app);
+    let url = format!("{}/libraries/{}/documents/{}", cfg.api_base_url, library_id, document_id);
+    let response = send_with_retry(&app, &tokens, &cfg, |name, value| client().delete(&url).header(name, value)).await?;
+    if response.status().is_success() {
+        Ok(())
+    } else {
+        Err(map_response(response).await.err().unwrap_or_default())
+    }
+}
+
+/// Retries ingestion for a document currently in `failed` status. Async on the server (returns a
+/// job_id, the actual re-embed runs in the background) — the frontend doesn't poll this job
+/// directly, it just keeps re-fetching list_documents until the document's own status moves off
+/// `failed`, same pattern as tracking a fresh upload.
+#[tauri::command]
+pub async fn retry_document(
+    app: AppHandle,
+    library_id: String,
+    document_id: String,
+    tokens: State<'_, TokenState>,
+) -> Result<Value, String> {
+    let cfg = config::load_config(&app);
+    let url = format!("{}/libraries/{}/documents/{}/retry", cfg.api_base_url, library_id, document_id);
+    let response = send_with_retry(&app, &tokens, &cfg, |name, value| client().post(&url).header(name, value)).await?;
+    map_response(response).await
+}
+
+/// Lets the frontend reject an oversized file before ever calling upload_document — knowledge-api
+/// enforces a max upload size (Flask's MAX_CONTENT_LENGTH) but doesn't expose the limit through
+/// any API response, so the only way to check ahead of time is locally, against the file on disk.
+#[tauri::command]
+pub fn get_file_size(file_path: String) -> Result<u64, String> {
+    std::fs::metadata(&file_path).map(|m| m.len()).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
