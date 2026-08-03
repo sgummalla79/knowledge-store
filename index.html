@@ -58,12 +58,6 @@
               </span>
               <span class="sidebar-label">Knowledge API</span>
             </button>
-            <button class="sidebar-item" data-view="embeddings" type="button">
-              <span class="sidebar-icon">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
-              </span>
-              <span class="sidebar-label">Embeddings</span>
-            </button>
           </div>
           <button class="sidebar-settings-trigger" id="sidebar-settings-trigger" type="button" aria-expanded="false" aria-haspopup="true">
             <span class="sidebar-icon">
@@ -101,7 +95,7 @@
               </div>
               <div>
                 <h1>Knowledge</h1>
-                <p class="page-description">Create knowledge libraries, upload documents, and manage embeddings.</p>
+                <p class="page-description">Create knowledge libraries and upload documents.</p>
               </div>
             </div>
           </div>
@@ -202,88 +196,6 @@
           </div>
         </section>
 
-        <section class="page view" id="view-embeddings" hidden>
-          <div class="page-header">
-            <div class="page-header-left">
-              <div class="icon-tile tile-slate">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
-              </div>
-              <div>
-                <h1>Embeddings</h1>
-                <p class="page-description">Configure the embeddings provider used across every library.</p>
-              </div>
-            </div>
-          </div>
-
-          <div class="card">
-            <div class="card-header-static">
-              <span class="card-title">Embeddings</span>
-              <span class="badge" id="embeddings-badge">Not configured</span>
-            </div>
-            <div class="card-body" id="embeddings-card-body">
-              <p class="status-text" id="embeddings-disabled-hint">Configure your connection above first.</p>
-              <form id="embeddings-form" class="form-grid">
-                <label>Provider<span class="select-wrapper"><select id="embed-settings-provider" disabled></select></span></label>
-                <label id="embed-settings-base-url-field" hidden>Connection URL
-                  <input id="embed-settings-base-url" placeholder="http://ollama:11434" disabled />
-                </label>
-                <p class="status-text" id="embed-settings-base-url-hint" hidden>Optional — point at a different Ollama instance instead of the bundled one. Leave blank to use the default.</p>
-                <label id="embed-settings-api-key-field" hidden>API key
-                  <span class="password-field">
-                    <input id="embed-settings-api-key" type="password" placeholder="Leave blank to keep the current key" disabled />
-                    <button type="button" class="password-toggle" id="embed-settings-api-key-toggle" aria-label="Show password" title="Show password" disabled>
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.636-7 10-7 10 7 10 7-3.636 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
-                    </button>
-                  </span>
-                </label>
-                <div class="form-row-2">
-                  <label>Model
-                    <input id="embed-settings-model" list="embed-settings-model-list" placeholder="e.g. nomic-embed-text" disabled />
-                    <datalist id="embed-settings-model-list"></datalist>
-                  </label>
-                  <label>Dimensions<span class="select-wrapper"><select id="embed-settings-dimensions" disabled></select></span></label>
-                </div>
-                <p class="status-text" id="embed-settings-model-fetch-hint" hidden></p>
-                <div class="form-row-2">
-                  <label>Chunk size<input id="embed-settings-chunk-size" type="number" disabled /></label>
-                  <label>Chunk overlap<input id="embed-settings-chunk-overlap" type="number" disabled /></label>
-                </div>
-                <p class="status-text">Applies to every library — chunking happens once, at upload time, using whatever is saved here.</p>
-                <p class="status-text" id="embed-settings-locked-hint" hidden>Provider, model, dimensions, and connection URL are locked, and this configuration can't be deleted — delete every document across every library first. Chunk size, chunk overlap, and API key can still be changed.</p>
-                <div class="form-actions">
-                  <button type="button" class="btn btn-danger btn-sm" id="embeddings-remove-btn" hidden>Delete configuration</button>
-                  <button type="submit" class="btn btn-primary btn-sm" id="embeddings-save-btn" disabled>Save</button>
-                </div>
-              </form>
-              <p class="status-text" id="embeddings-form-status"></p>
-            </div>
-          </div>
-
-          <!-- Re-ranking was removed entirely from knowledge-api (it was unreachable — an empty
-               provider allow-list — and had a latent bug where enabling it would silently break
-               for any deployment not using Voyage for embeddings). Only the hybrid-retrieval
-               tuning fields remain; they're unaffected and always apply, regardless of provider. -->
-          <div class="card">
-            <div class="card-header-static">
-              <span class="card-title">Search Settings</span>
-            </div>
-            <div class="card-body">
-              <form id="search-settings-form" class="form-grid">
-                <div class="form-row-2">
-                  <label>Dense K<input id="search-settings-dense-k" type="number" min="1" max="100" /></label>
-                  <label>Sparse K<input id="search-settings-sparse-k" type="number" min="1" max="100" /></label>
-                </div>
-                <label>RRF K<input id="search-settings-rrf-k" type="number" min="1" max="1000" /></label>
-                <p class="status-text">Dense K, Sparse K, and RRF K tune hybrid retrieval.</p>
-
-                <div class="form-actions">
-                  <button type="submit" class="btn btn-primary btn-sm" id="search-settings-save-btn">Save</button>
-                </div>
-              </form>
-              <p class="status-text" id="search-settings-form-status"></p>
-            </div>
-          </div>
-        </section>
       </main>
     </div>
 
