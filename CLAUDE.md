@@ -154,8 +154,9 @@ release: **1.0.0**, tracked on branch `releases/v1`.
 
 **Branch model:** each major version gets a long-lived `releases/vN` branch (currently just
 `releases/v1`; a future breaking/major change gets `releases/v2` cut from `master` the same way).
-`master` is where release branches originate from and where fixes land after being proven on the
-release branch — not necessarily where day-to-day feature work happens.
+`releases/v1` is the active working branch — **all day-to-day work happens there**, not on
+`master`. `master` only moves via merges/cherry-picks from a release branch; it's the stable
+lineage release branches are cut from, not where work originates.
 
 **Bug-fix workflow — follow this exactly, every fix, no exceptions:**
 1. Branch off the relevant `releases/vN` branch (e.g. `releases/v1`) for the fix.
