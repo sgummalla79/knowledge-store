@@ -144,6 +144,31 @@ cheaper to check than clearing system caches:
    killall Dock; killall Finder
    ```
 
+## Versioning & release workflow
+
+**This applies from any machine — it's not tied to local git config.** The app version is
+tracked in four places that must always be kept in sync: the root `VERSION` file (single source
+of truth) plus `package.json`, `src-tauri/Cargo.toml`, and `src-tauri/tauri.conf.json` (Tauri
+requires the version duplicated into these; there's no single-file config it reads from). Current
+release: **1.0.0**, tracked on branch `releases/v1`.
+
+**Branch model:** each major version gets a long-lived `releases/vN` branch (currently just
+`releases/v1`; a future breaking/major change gets `releases/v2` cut from `master` the same way).
+`master` is where release branches originate from and where fixes land after being proven on the
+release branch — not necessarily where day-to-day feature work happens.
+
+**Bug-fix workflow — follow this exactly, every fix, no exceptions:**
+1. Branch off the relevant `releases/vN` branch (e.g. `releases/v1`) for the fix.
+2. Fix the bug on that branch.
+3. Before committing the fix, bump the **patch** number (`X.Y.Z` → `X.Y.Z+1`) in all four version
+   locations (`VERSION`, `package.json`, `Cargo.toml`, `tauri.conf.json`) and include that bump in
+   the same commit as the fix. Minor (`Y`) and major (`X`) are not touched by routine bug fixes —
+   minor is for new features, major is for breaking changes.
+4. Push the fix branch and test it.
+5. Once verified, merge the fix branch into `releases/vN`.
+6. Cherry-pick the fix commit (version bump included) from `releases/vN` onto `master`, so
+   `master` always carries every shipped fix even though it isn't itself a release branch.
+
 ## Bundle identifier
 
 `identifier` in `tauri.conf.json` (`com.sgummalla.tauri-app`) determines where `config.json`
