@@ -942,10 +942,6 @@ document.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && !editLibraryCard.hidden) closeEditLibraryModal();
 });
 
-// knowledge-api has no PATCH/PUT /libraries/{id} yet (see update_library's comment on the Rust
-// side) — this will fail with a 404-shaped error until the API team adds it. Wired up for real
-// anyway, same as the re-ranking enable checkbox before its provider existed: the natural error
-// toast communicates "not supported yet" without needing a separate disabled/placeholder state.
 editLibraryForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   if (!libraryBeingEdited) return;

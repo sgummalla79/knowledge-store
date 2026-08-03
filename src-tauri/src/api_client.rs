@@ -128,10 +128,6 @@ pub async fn create_library(app: AppHandle, payload: Value, tokens: State<'_, To
     map_response(response).await
 }
 
-// No PATCH/PUT /libraries/{id} exists on knowledge-api yet (only POST/GET/DELETE) — this will
-// 404 until the API team adds it (see the frontend ask drafted for this). Kept as a real,
-// already-wired command rather than left unbuilt, so the UI just needs the endpoint to exist,
-// not any further frontend work, once it ships.
 #[tauri::command]
 pub async fn update_library(
     app: AppHandle,

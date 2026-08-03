@@ -1326,13 +1326,16 @@ textarea:disabled {
 
 /* Toasts — non-blocking confirmation of a CRUD action's outcome (created/saved/deleted/failed),
    replacing inline "Saved."-style text that used to sit permanently next to a button. Stacked
-   bottom-right, newest at the bottom; each is click-to-dismiss and auto-dismisses on its own. */
+   top-right, newest nearest the corner; each is click-to-dismiss and auto-dismisses on its own. */
 .toast-container {
   position: fixed;
-  bottom: 20px;
+  top: 20px;
   right: 20px;
   display: flex;
-  flex-direction: column;
+  /* column-reverse so the newest toast (appended last in the DOM) renders nearest the anchored
+     corner, same "new pushes old away from the corner" stacking as the previous bottom-right
+     placement had. */
+  flex-direction: column-reverse;
   gap: 8px;
   z-index: 500;
   pointer-events: none;
@@ -1351,7 +1354,7 @@ textarea:disabled {
   font-size: 13px;
   color: var(--fg);
   opacity: 0;
-  transform: translateY(8px);
+  transform: translateY(-8px);
   transition: opacity 0.2s ease, transform 0.2s ease;
 }
 
