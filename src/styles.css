@@ -58,6 +58,8 @@ svg {
   overflow-y: auto;
   position: relative;
   z-index: 2;
+  display: flex;
+  flex-direction: column;
   transition: opacity 150ms ease, visibility 150ms ease;
 }
 
@@ -83,13 +85,65 @@ svg {
   margin-bottom: 16px;
 }
 
-.sidebar-section-label {
-  font-size: 12px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
+/* Reads as one menu item, not "Knowledge button next to a separate + button" — the row itself
+   carries the pill's background (hover/active), and both children sit on it with transparent
+   backgrounds of their own, so there's no visible seam between them. */
+.sidebar-item-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border-radius: var(--radius-md);
+  transition: background-color 150ms ease;
+}
+
+.sidebar-item-row:hover {
+  background: var(--sidebar-hover);
+}
+
+.sidebar-item-row:has(.sidebar-item.active),
+.sidebar-item-row:has(.sidebar-library-item.active) {
+  background: var(--sidebar-primary);
+}
+
+.sidebar-item-row .sidebar-item {
+  width: auto;
+  min-width: 0;
+  flex: 1;
+  background: transparent;
+}
+
+.sidebar-item-row .sidebar-item:hover {
+  background: transparent;
+}
+
+.sidebar-item-row .sidebar-item.active {
+  background: transparent;
+}
+
+.sidebar-item-action {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
+  padding: 0;
+  border: none;
+  background: transparent;
   color: var(--sidebar-fg-muted);
-  padding: 8px 12px 2px;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  box-shadow: none;
+  -webkit-app-region: no-drag;
+}
+
+.sidebar-item-action:hover {
+  color: var(--sidebar-fg);
+}
+
+.sidebar-item-row:has(.sidebar-item.active) .sidebar-item-action,
+.sidebar-item-row:has(.sidebar-library-item.active) .sidebar-item-action {
+  color: var(--sidebar-primary-fg);
 }
 
 .sidebar-item {
@@ -129,6 +183,69 @@ svg {
   height: 16px;
   min-width: 16px;
   display: inline-flex;
+}
+
+.sidebar-bottom {
+  position: relative;
+  margin-top: auto;
+  padding-top: 8px;
+  border-top: 1px solid var(--sidebar-border);
+}
+
+.sidebar-settings-trigger {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  height: 32px;
+  padding: 0 12px;
+  border-radius: var(--radius-md);
+  border: none;
+  background: transparent;
+  color: var(--sidebar-fg-muted);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  box-shadow: none;
+  transition: background-color 150ms ease, color 150ms ease;
+  -webkit-app-region: no-drag;
+}
+
+.sidebar-settings-trigger:hover,
+.sidebar-settings-trigger[aria-expanded="true"] {
+  background: var(--sidebar-hover);
+  color: var(--sidebar-fg);
+}
+
+.sidebar-settings-trigger .sidebar-label {
+  flex: 1;
+}
+
+.sidebar-settings-chevron {
+  width: 14px;
+  height: 14px;
+  min-width: 14px;
+  display: inline-flex;
+  transition: transform 150ms ease;
+}
+
+.sidebar-settings-trigger[aria-expanded="true"] .sidebar-settings-chevron {
+  transform: rotate(180deg);
+}
+
+.sidebar-settings-menu {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(100% + 6px);
+  padding: 4px;
+  border-radius: var(--radius-md);
+  background: var(--sidebar-bg);
+  border: 1px solid var(--sidebar-border);
+  box-shadow: var(--shadow-2xl);
+  z-index: 5;
 }
 
 /* Collapse toggle: fixed at TITLEBAR_TOGGLE_LEFT_PX (86) and TRAFFIC_LIGHT_Y (28) minus
@@ -251,6 +368,7 @@ html.platform-windows .collapse-toggle {
 
 .page-header-left {
   display: flex;
+  align-items: center;
   gap: 12px;
 }
 
@@ -320,23 +438,15 @@ h1 {
   border-color: transparent;
 }
 
-/* Inner clickable toggle for a header that also has a non-toggle action next to it (e.g. the
-   Embeddings card's "Instructions" button) — .card-header becomes a plain flex container (div)
-   and this is the actual button, so the two don't nest inside one another. */
-.card-header-toggle {
+/* Inner title/badge group for a header that also has a separate action button next to it (e.g.
+   the Knowledge API card's refresh button) — .card-header is the flex container for both, and
+   this just groups the title+badge so they don't stretch to push the button off to the side. */
+.card-header-group {
   flex: 1;
   min-width: 0;
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 0;
-  background: none;
-  border: none;
-  cursor: pointer;
-  font: inherit;
-  color: inherit;
-  text-align: left;
-  box-shadow: none;
 }
 
 .card-header-static {
@@ -345,18 +455,6 @@ h1 {
   align-items: center;
   gap: 8px;
   padding: 12px 16px;
-}
-
-.chevron {
-  display: inline-flex;
-  width: 16px;
-  height: 16px;
-  color: var(--muted-fg);
-  transition: transform 0.15s ease;
-}
-
-.chevron.open {
-  transform: rotate(90deg);
 }
 
 .card-title {
@@ -370,12 +468,40 @@ h1 {
   padding: 16px;
 }
 
-/* .card provides border/radius only, no padding — cards with a header (.card-header +
-   .card-body) get their padding from .card-body. The create-library card has no header, so
-   without this its form/buttons/status-text render flush against the rounded border (the bug:
-   status text at the bottom visually collided with the corner curve). */
-.create-form {
-  padding: 16px;
+/* Modal (currently just the New Library dialog) — a fixed-position, centered overlay rather than
+   inline page content, so it reads as a focused action instead of just another card on the page. */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+
+.modal {
+  width: 100%;
+  max-width: 420px;
+  margin: 16px;
+  padding: 20px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-2xl);
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+
+.modal-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
 }
 
 /* Badges */
@@ -392,8 +518,13 @@ h1 {
 }
 
 .badge-destructive {
-  background: var(--destructive-bg);
-  color: var(--destructive);
+  background: var(--destructive);
+  color: var(--tile-fg);
+}
+
+.badge-success {
+  background: var(--success);
+  color: var(--tile-fg);
 }
 
 /* Sizes a button to match the .badge pill (docs-count badge) exactly — same padding, fully
@@ -681,33 +812,240 @@ textarea:disabled {
   margin: 8px 0 0;
 }
 
-/* Library cards */
+/* Library list (Knowledge page) — a plain two-line clickable row (name + description) per
+   library, not an expandable card; clicking navigates to that library's own detail view
+   (#view-library) rather than expanding inline. Delete/doc-count live on that detail page's
+   header instead of here, keeping this list to exactly the two lines it's meant to show. */
+.library-list-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  margin-bottom: 8px;
+  padding: 12px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg);
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+  box-shadow: none;
+  transition: border-color 150ms ease, background-color 150ms ease;
+}
 
-.library-card .card-header {
+.library-list-row:hover {
+  border-color: var(--primary);
+  background: var(--secondary-bg);
+}
+
+.library-list-icon {
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
+  padding: 7px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+  background: var(--secondary-bg);
+  color: var(--muted-fg);
+}
+
+.library-list-text {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  gap: 2px;
+  min-width: 0;
+}
+
+.library-list-doc-count {
+  flex-shrink: 0;
+}
+
+.library-list-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.library-list-description {
+  font-size: 12px;
+  color: var(--muted-fg);
+}
+
+/* Sidebar library tree — child rows nested under the Knowledge nav item, one per library,
+   mirroring the sidebar's own item styling at a smaller/indented scale. Each row reuses the same
+   "row carries the background, children stay transparent" pattern as .sidebar-item-row (see its
+   comment) so the Edit/Delete icon buttons read as part of the same row, not separate controls
+   floating next to it. */
+.sidebar-library-tree {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 8px;
+  padding-left: 20px;
+}
+
+.sidebar-library-tree .sidebar-item-row {
+  gap: 2px;
+  padding-right: 6px;
+}
+
+.sidebar-library-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 32px;
+  min-width: 0;
+  flex: 1;
+  padding: 0 10px;
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--sidebar-fg-muted);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  box-shadow: none;
+  transition: background-color 150ms ease, color 150ms ease;
+  -webkit-app-region: no-drag;
+}
+
+.sidebar-library-item:hover {
+  color: var(--sidebar-fg);
+}
+
+.sidebar-library-item.active {
+  color: var(--sidebar-primary-fg);
+  font-weight: 600;
+}
+
+.sidebar-library-item-action {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  min-width: 24px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--sidebar-fg-muted);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  box-shadow: none;
+  -webkit-app-region: no-drag;
+}
+
+.sidebar-library-item-action .sidebar-icon {
+  width: 14px;
+  height: 14px;
+}
+
+.sidebar-library-item-action:hover {
+  color: var(--sidebar-fg);
+}
+
+.sidebar-item-row:has(.sidebar-library-item.active) .sidebar-library-item-action {
+  color: var(--sidebar-primary-fg);
+}
+
+/* Delete is a solid red button (matching .btn-danger's background/icon-color pair) in every state
+   (idle, hover, even when its row is the active library) — a destructive action shouldn't blend
+   into whatever color the row's other states are using, unlike Edit which just follows the row's
+   normal muted/hover/active text color. */
+.sidebar-library-item-action-danger {
+  background: var(--destructive);
+  color: var(--tile-fg);
+}
+
+.sidebar-library-item-action-danger:hover {
+  background: color-mix(in oklch, var(--destructive) 85%, black);
+  color: var(--tile-fg);
+}
+
+.sidebar-item-row:has(.sidebar-library-item.active) .sidebar-library-item-action-danger {
+  background: var(--destructive);
+  color: var(--tile-fg);
+}
+
+/* Library detail page (#view-library) */
+
+.library-detail-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 12px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--muted-fg);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  box-shadow: none;
+}
+
+.library-detail-back:hover {
+  color: var(--fg);
+}
+
+.library-detail-back-icon {
+  display: inline-flex;
+  width: 16px;
+  height: 16px;
+}
+
+.library-detail-name-row {
+  display: flex;
+  align-items: center;
   gap: 10px;
 }
 
-.library-meta {
-  display: flex;
-  gap: 6px;
-  align-items: center;
-}
-
-.library-actions {
-  display: flex;
-  align-items: center;
-  gap: 4px;
+.library-detail-doc-count {
+  padding: 4px 12px;
+  font-size: 13px;
 }
 
 .doc-upload-wrap {
   margin-bottom: 16px;
 }
 
+.doc-upload-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 10px;
+}
+
+.doc-upload-tab {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 6px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted-fg);
+  cursor: pointer;
+}
+
+.doc-upload-tab:hover {
+  color: var(--fg);
+}
+
+.doc-upload-tab-active {
+  background: var(--secondary-bg);
+  border-color: var(--input);
+  color: var(--fg);
+}
+
 .doc-url-ingest {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-top: 10px;
 }
 
 .doc-url-input {
@@ -838,6 +1176,12 @@ textarea:disabled {
   color: var(--muted-fg);
 }
 
+.doc-rename-input {
+  width: 100%;
+  font-size: 13px;
+  font-weight: 600;
+}
+
 .doc-muted-cell {
   color: var(--muted-fg);
   white-space: nowrap;
@@ -857,6 +1201,10 @@ textarea:disabled {
 
 .doc-status-failed {
   color: var(--destructive);
+}
+
+.doc-status-cancelled {
+  color: var(--amber-fg);
 }
 
 .doc-status-progress {
@@ -923,45 +1271,14 @@ textarea:disabled {
   font-size: 13px;
 }
 
-.dropzone {
-  background: transparent;
-  font-family: inherit;
-  border: 1px dashed var(--border);
-  border-radius: var(--radius-md);
-  padding: 24px 16px;
-  width: 100%;
-  box-sizing: border-box;
+.upload-control {
   display: flex;
-  flex-direction: column;
   align-items: center;
-  gap: 6px;
-  cursor: pointer;
-  color: var(--muted-fg);
-  font-size: 13px;
+  gap: 10px;
 }
 
-.dropzone .dropzone-icon {
-  width: 22px;
-  height: 22px;
-}
-
-.dropzone .dropzone-title {
-  font-weight: 500;
-  color: var(--fg);
-}
-
-.dropzone .dropzone-caption {
-  font-size: 11px;
-  color: var(--muted-fg);
-}
-
-.dropzone:hover {
-  border-color: var(--primary);
-  color: var(--primary);
-}
-
-.dropzone:hover .dropzone-title {
-  color: var(--primary);
+.upload-control .status-text {
+  margin: 0;
 }
 
 .upload-row {

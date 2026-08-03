@@ -34,20 +34,45 @@
     <div class="app-shell">
       <nav class="sidebar" id="sidebar">
         <div class="sidebar-section">
-          <button class="sidebar-item active" data-view="knowledge" type="button">
-            <span class="sidebar-icon">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m16 6 4 14"/><path d="M12 6v14"/><path d="M8 8v12"/><path d="M4 4v16"/></svg>
-            </span>
-            <span class="sidebar-label">Knowledge</span>
-          </button>
+          <div class="sidebar-item-row">
+            <button class="sidebar-item active" data-view="knowledge" type="button">
+              <span class="sidebar-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m16 6 4 14"/><path d="M12 6v14"/><path d="M8 8v12"/><path d="M4 4v16"/></svg>
+              </span>
+              <span class="sidebar-label">Knowledge</span>
+            </button>
+            <button type="button" class="sidebar-item-action" id="sidebar-new-library-btn" title="New library" aria-label="New library">
+              <span class="sidebar-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              </span>
+            </button>
+          </div>
+          <div class="sidebar-library-tree" id="sidebar-library-tree"></div>
         </div>
-        <div class="sidebar-section">
-          <div class="sidebar-section-label">Settings</div>
-          <button class="sidebar-item" data-view="configuration" type="button">
+
+        <div class="sidebar-bottom">
+          <div class="sidebar-settings-menu" id="sidebar-settings-menu" hidden>
+            <button class="sidebar-item" data-view="knowledge-api" type="button">
+              <span class="sidebar-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg>
+              </span>
+              <span class="sidebar-label">Knowledge API</span>
+            </button>
+            <button class="sidebar-item" data-view="embeddings" type="button">
+              <span class="sidebar-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
+              </span>
+              <span class="sidebar-label">Embeddings</span>
+            </button>
+          </div>
+          <button class="sidebar-settings-trigger" id="sidebar-settings-trigger" type="button" aria-expanded="false" aria-haspopup="true">
             <span class="sidebar-icon">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
             </span>
-            <span class="sidebar-label">Configuration</span>
+            <span class="sidebar-label">Settings</span>
+            <span class="sidebar-settings-chevron">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"/></svg>
+            </span>
           </button>
         </div>
       </nav>
@@ -79,54 +104,83 @@
                 <p class="page-description">Create knowledge libraries, upload documents, and manage embeddings.</p>
               </div>
             </div>
-            <button id="new-library-btn" class="btn btn-primary btn-sm">+ New library</button>
           </div>
 
           <div id="status-banner"></div>
 
-          <div class="card create-form" id="create-library-card" hidden>
-            <form id="create-library-form" class="form-grid">
-              <label>Name<input id="lib-name" placeholder="e.g. product-docs" required /></label>
-              <label>Description<input id="lib-description" placeholder="Optional description" /></label>
-              <div class="form-actions">
-                <button type="button" class="btn btn-ghost btn-sm" id="cancel-create-library">Cancel</button>
-                <button type="submit" class="btn btn-primary btn-sm">Create</button>
+          <div class="modal-overlay" id="create-library-card" hidden>
+            <div class="modal">
+              <div class="modal-header">
+                <h2 class="modal-title">New library</h2>
+                <button type="button" class="btn-icon btn-icon-neutral" id="close-create-library" aria-label="Close" title="Close">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                </button>
               </div>
-            </form>
+              <form id="create-library-form" class="form-grid">
+                <label>Name<input id="lib-name" placeholder="e.g. product-docs" required /></label>
+                <label>Description<input id="lib-description" placeholder="Optional description" /></label>
+                <div class="form-actions">
+                  <button type="button" class="btn btn-ghost btn-sm" id="cancel-create-library">Cancel</button>
+                  <button type="submit" class="btn btn-primary btn-sm">Create</button>
+                </div>
+              </form>
+            </div>
           </div>
 
           <div id="libraries-list"></div>
         </section>
 
-        <section class="page view" id="view-configuration" hidden>
+        <section class="page view" id="view-library" hidden>
+          <button type="button" class="library-detail-back" id="library-detail-back-btn">
+            <span class="library-detail-back-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+            </span>
+            Knowledge
+          </button>
+          <div class="page-header">
+            <div class="page-header-left">
+              <div class="icon-tile tile-teal">
+                <svg viewBox="0 0 198.084 198.084" fill="currentColor"><path d="M185.379,159.263L185.379,159.263l-3.452,16.918c-1.222,5.987-6.488,10.287-12.599,10.287H20.196c-8.135,0-14.225-7.458-12.599-15.429l14.342-70.291c1.001-4.904,4.577-8.725,9.141-10.196l0,0c0.325-0.105,0.656-0.198,0.99-0.279c0.017-0.004,0.034-0.007,0.051-0.011c0.314-0.075,0.631-0.14,0.952-0.193c0.101-0.016,0.203-0.026,0.305-0.04c0.247-0.035,0.495-0.07,0.746-0.091c0.368-0.03,0.739-0.049,1.114-0.049h5.842h117.735h10h16.563h6.236c1.79,0,3.383,0.718,4.54,1.861c1.157,1.143,1.879,2.712,1.926,4.414c0.013,0.486-0.028,0.983-0.13,1.484L185.379,159.263z M185.315,79.889c-0.6-5.713-5.445-10.181-11.314-10.181h-5.186v10.181H185.315z M12.142,98.749c1.947-9.543,9.603-16.799,18.939-18.486V52.719H13.35C5.989,52.719,0,58.708,0,66.068v92.185L12.142,98.749z M158.815,17.23v62.659H41.081V17.23c0-3.095,2.519-5.614,5.614-5.614h106.507C156.297,11.616,158.815,14.134,158.815,17.23z M144.425,61.507c0-2.761-2.238-5-5-5H60.471c-2.761,0-5,2.239-5,5c0,2.761,2.239,5,5,5h78.954C142.187,66.507,144.425,64.268,144.425,61.507z M144.425,35.69c0-2.761-2.238-5-5-5H60.471c-2.761,0-5,2.239-5,5s2.239,5,5,5h78.954C142.187,40.69,144.425,38.451,144.425,35.69z"/></svg>
+              </div>
+              <div>
+                <div class="library-detail-name-row">
+                  <h1 id="library-detail-name"></h1>
+                  <span class="badge library-detail-doc-count" id="library-detail-doc-count">0 docs</span>
+                </div>
+                <p class="page-description" id="library-detail-description"></p>
+              </div>
+            </div>
+          </div>
+
+          <div id="library-detail-body"></div>
+        </section>
+
+        <section class="page view" id="view-knowledge-api" hidden>
           <div class="page-header">
             <div class="page-header-left">
               <div class="icon-tile tile-slate">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg>
               </div>
               <div>
-                <h1>Configuration</h1>
-                <p class="page-description">Configure your API connection and embeddings provider.</p>
+                <h1>Knowledge API</h1>
+                <p class="page-description">Configure the connection to your knowledge-api instance.</p>
               </div>
             </div>
           </div>
 
           <div class="card">
             <div class="card-header">
-              <button class="card-header-toggle" id="connection-card-header" type="button">
-                <span class="chevron" id="connection-chevron">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
-                </span>
+              <span class="card-header-group">
                 <span class="card-title">Knowledge API</span>
                 <span class="badge" id="connection-badge">Not configured</span>
-              </button>
+              </span>
               <button type="button" class="btn-icon btn-icon-neutral" id="connection-refresh-btn" title="Refresh connection status" aria-label="Refresh connection status">
                 <span class="btn-icon-inline" id="connection-refresh-icon">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><polyline points="21 3 21 9 15 9"/></svg>
                 </span>
               </button>
             </div>
-            <div class="card-body" id="connection-card-body" hidden>
+            <div class="card-body" id="connection-card-body">
               <form id="settings-form" class="form-grid">
                 <label>URL<input id="api-base-url" placeholder="http://localhost:13102" /></label>
                 <label>Client ID<input id="client-id" placeholder="Client ID" /></label>
@@ -146,18 +200,27 @@
               </form>
             </div>
           </div>
+        </section>
+
+        <section class="page view" id="view-embeddings" hidden>
+          <div class="page-header">
+            <div class="page-header-left">
+              <div class="icon-tile tile-slate">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
+              </div>
+              <div>
+                <h1>Embeddings</h1>
+                <p class="page-description">Configure the embeddings provider used across every library.</p>
+              </div>
+            </div>
+          </div>
 
           <div class="card">
-            <div class="card-header">
-              <button class="card-header-toggle" id="embeddings-card-header" type="button">
-                <span class="chevron" id="embeddings-chevron">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
-                </span>
-                <span class="card-title">Embeddings</span>
-                <span class="badge" id="embeddings-badge">Not configured</span>
-              </button>
+            <div class="card-header-static">
+              <span class="card-title">Embeddings</span>
+              <span class="badge" id="embeddings-badge">Not configured</span>
             </div>
-            <div class="card-body" id="embeddings-card-body" hidden>
+            <div class="card-body" id="embeddings-card-body">
               <p class="status-text" id="embeddings-disabled-hint">Configure your connection above first.</p>
               <form id="embeddings-form" class="form-grid">
                 <label>Provider<span class="select-wrapper"><select id="embed-settings-provider" disabled></select></span></label>
@@ -195,8 +258,56 @@
               <p class="status-text" id="embeddings-form-status"></p>
             </div>
           </div>
+
+          <!-- Re-ranking was removed entirely from knowledge-api (it was unreachable — an empty
+               provider allow-list — and had a latent bug where enabling it would silently break
+               for any deployment not using Voyage for embeddings). Only the hybrid-retrieval
+               tuning fields remain; they're unaffected and always apply, regardless of provider. -->
+          <div class="card">
+            <div class="card-header-static">
+              <span class="card-title">Search Settings</span>
+            </div>
+            <div class="card-body">
+              <form id="search-settings-form" class="form-grid">
+                <div class="form-row-2">
+                  <label>Dense K<input id="search-settings-dense-k" type="number" min="1" max="100" /></label>
+                  <label>Sparse K<input id="search-settings-sparse-k" type="number" min="1" max="100" /></label>
+                </div>
+                <label>RRF K<input id="search-settings-rrf-k" type="number" min="1" max="1000" /></label>
+                <p class="status-text">Dense K, Sparse K, and RRF K tune hybrid retrieval.</p>
+
+                <div class="form-actions">
+                  <button type="submit" class="btn btn-primary btn-sm" id="search-settings-save-btn">Save</button>
+                </div>
+              </form>
+              <p class="status-text" id="search-settings-form-status"></p>
+            </div>
+          </div>
         </section>
       </main>
+    </div>
+
+    <!-- Outside any page-specific .view section, deliberately — its trigger (the pencil icon) lives
+         in the sidebar, reachable from every page, not just the Knowledge list. Nesting this inside
+         a .view section meant it silently failed to open whenever a different page was active,
+         since that section (and everything inside it) stays hidden until you navigate back to it. -->
+    <div class="modal-overlay" id="edit-library-card" hidden>
+      <div class="modal">
+        <div class="modal-header">
+          <h2 class="modal-title">Edit library</h2>
+          <button type="button" class="btn-icon btn-icon-neutral" id="close-edit-library" aria-label="Close" title="Close">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
+        </div>
+        <form id="edit-library-form" class="form-grid">
+          <label>Name<input id="lib-edit-name" placeholder="e.g. product-docs" required /></label>
+          <label>Description<input id="lib-edit-description" placeholder="Optional description" /></label>
+          <div class="form-actions">
+            <button type="button" class="btn btn-ghost btn-sm" id="cancel-edit-library">Cancel</button>
+            <button type="submit" class="btn btn-primary btn-sm">Save</button>
+          </div>
+        </form>
+      </div>
     </div>
 
     <div class="toast-container" id="toast-container" aria-live="polite"></div>

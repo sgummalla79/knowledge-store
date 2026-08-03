@@ -128,6 +128,26 @@ pub async fn create_library(app: AppHandle, payload: Value, tokens: State<'_, To
     map_response(response).await
 }
 
+// No PATCH/PUT /libraries/{id} exists on knowledge-api yet (only POST/GET/DELETE) — this will
+// 404 until the API team adds it (see the frontend ask drafted for this). Kept as a real,
+// already-wired command rather than left unbuilt, so the UI just needs the endpoint to exist,
+// not any further frontend work, once it ships.
+#[tauri::command]
+pub async fn update_library(
+    app: AppHandle,
+    library_id: String,
+    payload: Value,
+    tokens: State<'_, TokenState>,
+) -> Result<Value, String> {
+    let cfg = config::load_config(&app);
+    let url = format!("{}/libraries/{}", cfg.api_base_url, library_id);
+    let response = send_with_retry(&app, &tokens, &cfg, |name, value| {
+        client().patch(&url).header(name, value).json(&payload)
+    })
+    .await?;
+    map_response(response).await
+}
+
 #[tauri::command]
 pub async fn delete_library(app: AppHandle, library_id: String, tokens: State<'_, TokenState>) -> Result<(), String> {
     let cfg = config::load_config(&app);
@@ -180,6 +200,47 @@ pub async fn delete_document(
     let cfg = config::load_config(&app);
     let url = format!("{}/libraries/{}/documents/{}", cfg.api_base_url, library_id, document_id);
     let response = send_with_retry(&app, &tokens, &cfg, |name, value| client().delete(&url).header(name, value)).await?;
+    if response.status().is_success() {
+        Ok(())
+    } else {
+        Err(map_response(response).await.err().unwrap_or_default())
+    }
+}
+
+/// Pure label edit — works at any document status, including mid-ingestion, and never touches
+/// chunks/embeddings or retry eligibility.
+#[tauri::command]
+pub async fn rename_document(
+    app: AppHandle,
+    library_id: String,
+    document_id: String,
+    source_filename: String,
+    tokens: State<'_, TokenState>,
+) -> Result<Value, String> {
+    let cfg = config::load_config(&app);
+    let url = format!("{}/libraries/{}/documents/{}", cfg.api_base_url, library_id, document_id);
+    let payload = serde_json::json!({ "source_filename": source_filename });
+    let response = send_with_retry(&app, &tokens, &cfg, |name, value| {
+        client().patch(&url).header(name, value).json(&payload)
+    })
+    .await?;
+    map_response(response).await
+}
+
+/// Best-effort, not instant — the server checks for cancellation between embedding batches, so
+/// the job (and the document's status) can take a few seconds to actually settle into
+/// `cancelled` after this call returns. The frontend doesn't poll this job directly; it relies on
+/// the existing document-list poll to notice the status change, same as upload/retry.
+#[tauri::command]
+pub async fn cancel_upload_job(
+    app: AppHandle,
+    library_id: String,
+    job_id: String,
+    tokens: State<'_, TokenState>,
+) -> Result<(), String> {
+    let cfg = config::load_config(&app);
+    let url = format!("{}/libraries/{}/jobs/{}/cancel", cfg.api_base_url, library_id, job_id);
+    let response = send_with_retry(&app, &tokens, &cfg, |name, value| client().post(&url).header(name, value)).await?;
     if response.status().is_success() {
         Ok(())
     } else {
@@ -274,14 +335,6 @@ pub async fn clear_embedding_settings(app: AppHandle, tokens: State<'_, TokenSta
     let cfg = config::load_config(&app);
     let url = format!("{}/embedding-settings", cfg.api_base_url);
     let response = send_with_retry(&app, &tokens, &cfg, |name, value| client().delete(&url).header(name, value)).await?;
-    map_response(response).await
-}
-
-#[tauri::command]
-pub async fn get_rerank_options(app: AppHandle, tokens: State<'_, TokenState>) -> Result<Value, String> {
-    let cfg = config::load_config(&app);
-    let url = format!("{}/rerank-options", cfg.api_base_url);
-    let response = send_with_retry(&app, &tokens, &cfg, |name, value| client().get(&url).header(name, value)).await?;
     map_response(response).await
 }
 

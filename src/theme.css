@@ -26,6 +26,10 @@
   --primary-fg: oklch(1 0 0);
   --destructive: oklch(0.5409 0.2143 28.4788);
   --destructive-bg: color-mix(in oklch, var(--destructive) 12%, var(--bg));
+  /* Not ported from pragna2 — new token for this app's "Configured"/"Not configured" status
+     badges, mirroring --destructive's lightness/chroma weight so the two read as an equally
+     strong pair, just green instead of red. */
+  --success: oklch(0.6 0.17 145);
   --amber-bg: #fffbeb;
   --amber-border: #fde68a;
   --amber-fg: #92400e;
@@ -73,6 +77,7 @@
     --primary: oklch(0.7782 0.1158 252.5545);
     --primary-fg: oklch(0.2074 0.0625 252.2461);
     --destructive: oklch(0.5789 0.2217 27.8067);
+    --success: oklch(0.64 0.17 145);
     --amber-bg: #332a12;
     --amber-border: #6b5410;
     --amber-fg: #f0c869;

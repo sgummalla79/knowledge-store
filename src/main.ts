@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { open, confirm } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { initShell } from "./shell";
+import { initShell, switchToView } from "./shell";
 
 interface AppConfig {
   api_base_url: string;
@@ -86,6 +86,17 @@ interface EmbeddingSettingsStatus {
   updated_at: string | null;
 }
 
+// Re-ranking was removed entirely from knowledge-api (it was unreachable — an empty provider
+// allow-list — and had a latent bug where enabling it would silently break for any deployment not
+// using Voyage for embeddings). No "configured" boolean, unlike EmbeddingSettingsStatus — search
+// settings always exist (with defaults) rather than being an optional resource.
+interface SearchSettingsStatus {
+  dense_k: number;
+  sparse_k: number;
+  rrf_k: number;
+  updated_at: string | null;
+}
+
 interface AppError {
   code: string;
   message: string;
@@ -108,12 +119,19 @@ function parseError(error: unknown): AppError {
 }
 
 const ICONS = {
-  chevronRight:
-    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>',
+  // User-supplied "open folder with document" icon (svgrepo.com) — a solid-filled silhouette,
+  // unlike this app's other stroke-only icons, so fill is currentColor (not the source's hardcoded
+  // #000000) to invert correctly against the sidebar's dark background and light/dark themes alike.
+  library:
+    '<svg viewBox="0 0 198.084 198.084" fill="currentColor"><path d="M185.379,159.263L185.379,159.263l-3.452,16.918c-1.222,5.987-6.488,10.287-12.599,10.287H20.196c-8.135,0-14.225-7.458-12.599-15.429l14.342-70.291c1.001-4.904,4.577-8.725,9.141-10.196l0,0c0.325-0.105,0.656-0.198,0.99-0.279c0.017-0.004,0.034-0.007,0.051-0.011c0.314-0.075,0.631-0.14,0.952-0.193c0.101-0.016,0.203-0.026,0.305-0.04c0.247-0.035,0.495-0.07,0.746-0.091c0.368-0.03,0.739-0.049,1.114-0.049h5.842h117.735h10h16.563h6.236c1.79,0,3.383,0.718,4.54,1.861c1.157,1.143,1.879,2.712,1.926,4.414c0.013,0.486-0.028,0.983-0.13,1.484L185.379,159.263z M185.315,79.889c-0.6-5.713-5.445-10.181-11.314-10.181h-5.186v10.181H185.315z M12.142,98.749c1.947-9.543,9.603-16.799,18.939-18.486V52.719H13.35C5.989,52.719,0,58.708,0,66.068v92.185L12.142,98.749z M158.815,17.23v62.659H41.081V17.23c0-3.095,2.519-5.614,5.614-5.614h106.507C156.297,11.616,158.815,14.134,158.815,17.23z M144.425,61.507c0-2.761-2.238-5-5-5H60.471c-2.761,0-5,2.239-5,5c0,2.761,2.239,5,5,5h78.954C142.187,66.507,144.425,64.268,144.425,61.507z M144.425,35.69c0-2.761-2.238-5-5-5H60.471c-2.761,0-5,2.239-5,5s2.239,5,5,5h78.954C142.187,40.69,144.425,38.451,144.425,35.69z"/></svg>',
   fileText:
     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><line x1="10" y1="9" x2="8" y2="9"/></svg>',
   upload:
     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>',
+  pencil:
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/><path d="m15 5 4 4"/></svg>',
+  trash:
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>',
   alertTriangle:
     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>',
   eye:
@@ -159,23 +177,48 @@ const embeddingsDisabledHint = document.querySelector<HTMLParagraphElement>("#em
 const embeddingsLockedHint = document.querySelector<HTMLParagraphElement>("#embed-settings-locked-hint")!;
 const embedSettingsModelFetchHint = document.querySelector<HTMLParagraphElement>("#embed-settings-model-fetch-hint")!;
 
+const searchSettingsForm = document.querySelector<HTMLFormElement>("#search-settings-form")!;
+const searchSettingsDenseKInput = document.querySelector<HTMLInputElement>("#search-settings-dense-k")!;
+const searchSettingsSparseKInput = document.querySelector<HTMLInputElement>("#search-settings-sparse-k")!;
+const searchSettingsRrfKInput = document.querySelector<HTMLInputElement>("#search-settings-rrf-k")!;
+const searchSettingsFormStatus = document.querySelector<HTMLParagraphElement>("#search-settings-form-status")!;
+
 const statusBanner = document.querySelector<HTMLDivElement>("#status-banner")!;
 
-const newLibraryButton = document.querySelector<HTMLButtonElement>("#new-library-btn")!;
+const newLibraryButton = document.querySelector<HTMLButtonElement>("#sidebar-new-library-btn")!;
 const createLibraryCard = document.querySelector<HTMLDivElement>("#create-library-card")!;
 const createLibraryForm = document.querySelector<HTMLFormElement>("#create-library-form")!;
 const cancelCreateLibraryButton = document.querySelector<HTMLButtonElement>("#cancel-create-library")!;
+const closeCreateLibraryButton = document.querySelector<HTMLButtonElement>("#close-create-library")!;
 const nameInput = document.querySelector<HTMLInputElement>("#lib-name")!;
 const descriptionInput = document.querySelector<HTMLInputElement>("#lib-description")!;
 
+const editLibraryCard = document.querySelector<HTMLDivElement>("#edit-library-card")!;
+const editLibraryForm = document.querySelector<HTMLFormElement>("#edit-library-form")!;
+const cancelEditLibraryButton = document.querySelector<HTMLButtonElement>("#cancel-edit-library")!;
+const closeEditLibraryButton = document.querySelector<HTMLButtonElement>("#close-edit-library")!;
+const editNameInput = document.querySelector<HTMLInputElement>("#lib-edit-name")!;
+const editDescriptionInput = document.querySelector<HTMLInputElement>("#lib-edit-description")!;
+
 const librariesList = document.querySelector<HTMLDivElement>("#libraries-list")!;
 
-const expandedLibraryIds = new Set<string>();
+const sidebarLibraryTree = document.querySelector<HTMLDivElement>("#sidebar-library-tree")!;
+const libraryDetailBackButton = document.querySelector<HTMLButtonElement>("#library-detail-back-btn")!;
+const libraryDetailName = document.querySelector<HTMLHeadingElement>("#library-detail-name")!;
+const libraryDetailDescription = document.querySelector<HTMLParagraphElement>("#library-detail-description")!;
+const libraryDetailDocCount = document.querySelector<HTMLSpanElement>("#library-detail-doc-count")!;
+const libraryDetailBody = document.querySelector<HTMLDivElement>("#library-detail-body")!;
+
+// The one library currently shown on #view-library, if any — unlike the old per-card design,
+// #library-detail-body is a single shared element reused across libraries, so every poll/render
+// path below must check this before touching it (see rerenderLibraryFromCache/syncLibraryDocuments)
+// to stop a background poll for a library you've since navigated away from from clobbering
+// whichever library's content is actually showing now.
+let currentLibraryId: string | null = null;
 let cachedLibraries: Library[] = [];
-// Tracks whatever card-body element is currently mounted for each expanded library, looked up
-// fresh on every poll tick (never captured in a closure) — so an in-flight upload's progress
-// keeps rendering into the right place even if the library card gets torn down and rebuilt in
-// the meantime (collapse/re-expand, a library list refresh triggered elsewhere, etc.).
+// Tracks whatever body element is currently mounted for the open library, looked up fresh on every
+// poll tick (never captured in a closure) — so an in-flight upload's progress keeps rendering into
+// the right place even if the detail view gets torn down and rebuilt in the meantime.
 const libraryDocBodies = new Map<string, HTMLElement>();
 const activeDocumentPolls = new Map<string, ReturnType<typeof setInterval>>();
 // Last real document list fetched per library — lets an optimistic placeholder be re-rendered
@@ -184,11 +227,24 @@ const lastKnownDocuments = new Map<string, LibraryDocument[]>();
 // Filenames shown as "Uploading" placeholders before the server has a real document row for
 // them yet — cleared once the corresponding filename shows up in a real fetch.
 const pendingUploadFilenames = new Map<string, Set<string>>();
+// job_id of each in-flight upload, keyed by filename — captured from upload_document's response
+// so the placeholder's Cancel button has something to call cancel_upload_job with.
+const pendingUploadJobIds = new Map<string, Map<string, string>>();
+// Filenames whose upload Cancel button has been clicked — shown as "Cancelling…" instead of
+// "Uploading" until the placeholder is cleared (see the cancellation is best-effort/not instant
+// comment on the Rust cancel_upload_job command).
+const cancelRequestedUploads = new Map<string, Set<string>>();
+// Which upload method tab ("file" vs "url") is showing per library — purely a UI preference, not
+// document data, but still needs to survive re-renders since renderUploadRow is rebuilt from
+// scratch on every syncLibraryDocuments/rerenderLibraryFromCache call.
+const activeUploadTab = new Map<string, "file" | "url">();
 // Document ids currently being retried — shown as "Retrying" instead of their last-fetched
 // "failed" status. Retry is async server-side (status flips to "processing" on a background
 // thread after the POST already returned), so a poll right after clicking retry can still see
 // the stale "failed" status; cleared once a fetch shows the document has actually moved off it.
 const pendingRetryDocumentIds = new Map<string, Set<string>>();
+// Document ids currently showing the inline rename editor in place of their normal name/actions.
+const renamingDocumentIds = new Map<string, Set<string>>();
 // Crawl jobs currently being polled, per library (libraryId -> jobId -> latest known status).
 // Rendered as a placeholder row (like an upload) until the job resolves — a crawl can take a
 // while and produce documents progressively, so this needs its own poll (crawl-jobs isn't part
@@ -260,18 +316,6 @@ let modelFetchDebounceTimer: ReturnType<typeof setTimeout> | undefined;
 // discard its result instead of clobbering whatever a more recent request already rendered.
 let modelFetchRequestToken = 0;
 
-function setExpanded(el: HTMLElement, chevronEl: HTMLElement, expanded: boolean) {
-  el.hidden = !expanded;
-  chevronEl.classList.toggle("open", expanded);
-}
-
-function initAccordion(headerId: string, bodyId: string, chevronId: string) {
-  const header = document.querySelector<HTMLButtonElement>(`#${headerId}`)!;
-  const body = document.querySelector<HTMLElement>(`#${bodyId}`)!;
-  const chevron = document.querySelector<HTMLElement>(`#${chevronId}`)!;
-  header.addEventListener("click", () => setExpanded(body, chevron, body.hidden));
-}
-
 // Mirrors pragna2's PasswordInput: an eye icon inside the field that toggles the
 // input between password/text and swaps its own icon + aria-label to match.
 function initPasswordToggle(inputId: string, toggleId: string) {
@@ -288,15 +332,19 @@ function initPasswordToggle(inputId: string, toggleId: string) {
   });
 }
 
-function renderBanner(message: string) {
+// linkView picks which settings page the banner's link jumps to — "knowledge-api" for connection
+// problems, "embeddings" for embeddings-provider problems — now that those used to be one
+// combined Configuration tab and are two separate sidebar destinations.
+function renderBanner(message: string, linkView: "knowledge-api" | "embeddings") {
+  const linkLabel = linkView === "knowledge-api" ? "Go to Knowledge API" : "Go to Embeddings";
   statusBanner.innerHTML = `
     <div class="banner banner-warning">
       <span class="banner-icon">${ICONS.alertTriangle}</span>
-      <span>${message} <button type="button" class="banner-link" id="banner-config-link">Go to Configuration</button></span>
+      <span>${message} <button type="button" class="banner-link" id="banner-config-link">${linkLabel}</button></span>
     </div>
   `;
   document.querySelector<HTMLButtonElement>("#banner-config-link")?.addEventListener("click", () => {
-    document.querySelector<HTMLButtonElement>('.sidebar-item[data-view="configuration"]')?.click();
+    switchToView(linkView);
   });
 }
 
@@ -354,6 +402,10 @@ function setConnectionConfiguredState(configured: boolean) {
 
 function setConnectionBadge(state: ConnectionState) {
   connectionBadge.textContent = CONNECTION_BADGE_LABELS[state];
+  // "checking" gets neither color — it's a transient, in-between state, not a subtle-green
+  // "good" or subtle-red "bad" verdict on the connection.
+  connectionBadge.classList.toggle("badge-success", state === "configured");
+  connectionBadge.classList.toggle("badge-destructive", state === "not_configured" || state === "invalid" || state === "unreachable");
   setConnectionConfiguredState(state === "configured");
 }
 
@@ -425,7 +477,7 @@ disconnectButton.addEventListener("click", async () => {
     setConnectionBadge("not_configured");
     setEmbeddingsFormEnabled(false, "Configure your connection above first.");
     librariesList.innerHTML = "";
-    renderBanner("Not connected — configure your API connection first.");
+    renderBanner("Not connected — configure your API connection first.", "knowledge-api");
     showToast("Disconnected.");
   } catch (error) {
     showToast(`Error disconnecting: ${parseError(error).message}`, "error");
@@ -688,8 +740,14 @@ function applyEmbeddingDeleteButtonState(configured: boolean, chunksExist: boole
   embeddingsRemoveButton.disabled = !configured || chunksExist;
 }
 
+function setEmbeddingsBadge(configured: boolean) {
+  embeddingsBadge.textContent = configured ? "Configured" : "Not configured";
+  embeddingsBadge.classList.toggle("badge-success", configured);
+  embeddingsBadge.classList.toggle("badge-destructive", !configured);
+}
+
 function populateEmbeddingSettingsForm(status: EmbeddingSettingsStatus) {
-  embeddingsBadge.textContent = status.configured ? "Configured" : "Not configured";
+  setEmbeddingsBadge(status.configured);
   currentConfiguredProvider = status.configured ? status.provider : null;
 
   // With exactly one enabled provider there's nothing to actually pick — default straight to it,
@@ -727,7 +785,7 @@ async function loadEmbeddingSettingsIntoForm() {
     applyEmbeddingLockState(status.configured && chunksExist);
     applyEmbeddingDeleteButtonState(status.configured, chunksExist);
   } catch (error) {
-    embeddingsBadge.textContent = "Not configured";
+    setEmbeddingsBadge(false);
     setEmbeddingsFormEnabled(false, `Could not reach the API: ${parseError(error).message}`);
   }
 }
@@ -782,13 +840,61 @@ embeddingsRemoveButton.addEventListener("click", async () => {
   }
 });
 
+function populateSearchSettingsForm(status: SearchSettingsStatus) {
+  searchSettingsDenseKInput.value = String(status.dense_k);
+  searchSettingsSparseKInput.value = String(status.sparse_k);
+  searchSettingsRrfKInput.value = String(status.rrf_k);
+}
+
+async function loadSearchSettingsIntoForm() {
+  try {
+    const status = await invoke<SearchSettingsStatus>("get_search_settings");
+    populateSearchSettingsForm(status);
+  } catch (error) {
+    searchSettingsFormStatus.textContent = `Could not reach the API: ${parseError(error).message}`;
+  }
+}
+
+searchSettingsForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  try {
+    const payload = {
+      dense_k: Number(searchSettingsDenseKInput.value),
+      sparse_k: Number(searchSettingsSparseKInput.value),
+      rrf_k: Number(searchSettingsRrfKInput.value),
+    };
+    const status = await invoke<SearchSettingsStatus>("save_search_settings", { payload });
+    showToast("Search settings saved.");
+    populateSearchSettingsForm(status);
+  } catch (error) {
+    showToast(`Error saving search settings: ${parseError(error).message}`, "error");
+  }
+});
+
+function closeCreateLibraryModal() {
+  createLibraryCard.hidden = true;
+  createLibraryForm.reset();
+}
+
+// Lives in the sidebar now, next to the Knowledge nav item, rather than the Knowledge page's own
+// header — so it may be clicked from any page, and needs to switch to the Knowledge view itself
+// (same as clicking the sidebar item directly) before the create-library modal means anything.
 newLibraryButton.addEventListener("click", () => {
+  switchToView("knowledge");
   createLibraryCard.hidden = !createLibraryCard.hidden;
 });
 
-cancelCreateLibraryButton.addEventListener("click", () => {
-  createLibraryCard.hidden = true;
-  createLibraryForm.reset();
+cancelCreateLibraryButton.addEventListener("click", closeCreateLibraryModal);
+closeCreateLibraryButton.addEventListener("click", closeCreateLibraryModal);
+
+// Closes on a click that lands on the backdrop itself, not one that bubbled up from inside the
+// dialog box — event.target is only the overlay element for the former.
+createLibraryCard.addEventListener("click", (event) => {
+  if (event.target === createLibraryCard) closeCreateLibraryModal();
+});
+
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && !createLibraryCard.hidden) closeCreateLibraryModal();
 });
 
 createLibraryForm.addEventListener("submit", async (event) => {
@@ -801,12 +907,62 @@ createLibraryForm.addEventListener("submit", async (event) => {
         description: descriptionInput.value || null,
       },
     });
-    createLibraryForm.reset();
-    createLibraryCard.hidden = true;
     showToast(`Library "${name}" created.`);
+    closeCreateLibraryModal();
     await refreshLibraries();
   } catch (error) {
     showToast(`Error creating library: ${parseError(error).message}`, "error");
+  }
+});
+
+// Which library the (single, shared) edit modal is currently open for — null when closed.
+let libraryBeingEdited: Library | null = null;
+
+function closeEditLibraryModal() {
+  editLibraryCard.hidden = true;
+  editLibraryForm.reset();
+  libraryBeingEdited = null;
+}
+
+function openEditLibraryModal(library: Library) {
+  libraryBeingEdited = library;
+  editNameInput.value = library.name;
+  editDescriptionInput.value = library.description ?? "";
+  editLibraryCard.hidden = false;
+}
+
+cancelEditLibraryButton.addEventListener("click", closeEditLibraryModal);
+closeEditLibraryButton.addEventListener("click", closeEditLibraryModal);
+
+editLibraryCard.addEventListener("click", (event) => {
+  if (event.target === editLibraryCard) closeEditLibraryModal();
+});
+
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && !editLibraryCard.hidden) closeEditLibraryModal();
+});
+
+// knowledge-api has no PATCH/PUT /libraries/{id} yet (see update_library's comment on the Rust
+// side) — this will fail with a 404-shaped error until the API team adds it. Wired up for real
+// anyway, same as the re-ranking enable checkbox before its provider existed: the natural error
+// toast communicates "not supported yet" without needing a separate disabled/placeholder state.
+editLibraryForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  if (!libraryBeingEdited) return;
+  const name = editNameInput.value;
+  try {
+    await invoke("update_library", {
+      libraryId: libraryBeingEdited.id,
+      payload: {
+        name,
+        description: editDescriptionInput.value || null,
+      },
+    });
+    showToast(`Library "${name}" updated.`);
+    closeEditLibraryModal();
+    await refreshLibraries();
+  } catch (error) {
+    showToast(`Error updating library: ${parseError(error).message}`, "error");
   }
 });
 
@@ -817,8 +973,9 @@ async function checkStatusAndLoad() {
   const config = await invoke<AppConfig>("get_config");
   if (!hasCredentials(config)) {
     setConnectionBadge("not_configured");
-    renderBanner("Not connected — configure your API connection first.");
+    renderBanner("Not connected — configure your API connection first.", "knowledge-api");
     librariesList.innerHTML = "";
+    sidebarLibraryTree.innerHTML = "";
     return;
   }
 
@@ -828,23 +985,25 @@ async function checkStatusAndLoad() {
     const error = parseError(rawError);
     if (error.code === "unauthorized") {
       setConnectionBadge("invalid");
-      renderBanner("Your client credentials look invalid or expired — update them in Configuration.");
+      renderBanner("Your client credentials look invalid or expired — update them in Knowledge API.", "knowledge-api");
     } else {
       setConnectionBadge("unreachable");
-      renderBanner(`Error loading libraries: ${error.message}`);
+      renderBanner(`Error loading libraries: ${error.message}`, "knowledge-api");
     }
     librariesList.innerHTML = "";
+    sidebarLibraryTree.innerHTML = "";
     return;
   }
 
   setConnectionBadge("configured");
   clearBanner();
   renderLibraryList();
+  renderSidebarLibraryTree();
 
   try {
     const embeddingStatus = await invoke<EmbeddingSettingsStatus>("get_embedding_settings");
     if (!embeddingStatus.configured) {
-      renderBanner("Embeddings aren't configured — check the Configuration tab to enable uploads and search.");
+      renderBanner("Embeddings aren't configured — set up your embeddings provider to enable uploads and search.", "embeddings");
     }
   } catch {
     // Non-blocking check — if it fails, the library list already loaded fine, so just skip it.
@@ -859,7 +1018,7 @@ function renderLibraryList() {
   }
 
   for (const library of cachedLibraries) {
-    librariesList.appendChild(renderLibraryCard(library));
+    librariesList.appendChild(renderLibraryListRow(library));
   }
 }
 
@@ -871,89 +1030,147 @@ async function refreshLibraries() {
     return;
   }
   renderLibraryList();
+  renderSidebarLibraryTree();
+  // The open library's doc-count badge is drawn from cachedLibraries at open time — if ingestion
+  // just finished (this is called from syncLibraryDocuments once a poll settles), refresh it too
+  // so it doesn't sit stale until the user reopens the page.
+  const current = currentLibraryId ? cachedLibraries.find((lib) => lib.id === currentLibraryId) : null;
+  if (current) libraryDetailDocCount.textContent = `${current.document_count} docs`;
 }
 
-function renderLibraryCard(library: Library): HTMLElement {
-  const card = document.createElement("div");
-  card.className = "card library-card";
+// Plain two-line row (name + description) — no expand/chevron, no inline document body. Clicking
+// navigates to that library's own detail view (#view-library) instead of expanding in place.
+function renderLibraryListRow(library: Library): HTMLElement {
+  const row = document.createElement("button");
+  row.type = "button";
+  row.className = "library-list-row";
 
-  const header = document.createElement("button");
-  header.type = "button";
-  header.className = "card-header";
+  const icon = document.createElement("span");
+  icon.className = "library-list-icon";
+  icon.innerHTML = ICONS.library;
 
-  const chevron = document.createElement("span");
-  chevron.className = "chevron";
-  chevron.innerHTML = ICONS.chevronRight;
+  const text = document.createElement("span");
+  text.className = "library-list-text";
 
-  const title = document.createElement("span");
-  title.className = "card-title";
-  title.textContent = library.name;
+  const name = document.createElement("span");
+  name.className = "library-list-name";
+  name.textContent = library.name;
 
-  const meta = document.createElement("span");
-  meta.className = "library-meta";
-  meta.innerHTML = `
-    <span class="badge">${library.document_count} docs</span>
-  `;
+  const description = document.createElement("span");
+  description.className = "library-list-description";
+  description.textContent = library.description || "No description";
 
-  const actions = document.createElement("span");
-  actions.className = "library-actions";
-  const deleteButton = document.createElement("button");
-  deleteButton.type = "button";
-  deleteButton.className = "btn btn-danger btn-pill";
-  deleteButton.title = "Delete library";
-  deleteButton.textContent = "Delete";
-  deleteButton.addEventListener("click", async (event) => {
-    event.stopPropagation();
-    const confirmed = await confirm(
-      `Delete library "${library.name}"? This removes all its documents.`,
-      { title: "Delete library", kind: "warning" },
-    );
-    if (!confirmed) return;
-    try {
-      await invoke("delete_library", { libraryId: library.id });
-      expandedLibraryIds.delete(library.id);
-      showToast(`Library "${library.name}" deleted.`);
-      await refreshLibraries();
-    } catch (error) {
-      showToast(`Error deleting library: ${parseError(error).message}`, "error");
+  text.appendChild(name);
+  text.appendChild(description);
+
+  const docCount = document.createElement("span");
+  docCount.className = "badge library-list-doc-count";
+  docCount.textContent = `${library.document_count} docs`;
+
+  row.appendChild(icon);
+  row.appendChild(text);
+  row.appendChild(docCount);
+  row.addEventListener("click", () => openLibraryDetail(library));
+  return row;
+}
+
+// Shared by the sidebar row's trash icon — the only place Delete lives now (moved off the
+// library-detail page header, which only shows the doc-count badge these days).
+async function deleteLibrary(library: Library) {
+  const confirmed = await confirm(
+    `Delete library "${library.name}"? This removes all its documents.`,
+    { title: "Delete library", kind: "warning" },
+  );
+  if (!confirmed) return;
+  try {
+    await invoke("delete_library", { libraryId: library.id });
+    showToast(`Library "${library.name}" deleted.`);
+    if (currentLibraryId === library.id) {
+      switchToView("knowledge");
+      currentLibraryId = null;
     }
-  });
-  actions.appendChild(deleteButton);
-
-  header.appendChild(chevron);
-  header.appendChild(title);
-  header.appendChild(meta);
-  header.appendChild(actions);
-
-  const body = document.createElement("div");
-  body.className = "card-body";
-  body.hidden = true;
-
-  const isExpanded = expandedLibraryIds.has(library.id);
-  setExpanded(body, chevron, isExpanded);
-  if (isExpanded) {
-    loadDocuments(library, body);
+    await refreshLibraries();
+  } catch (error) {
+    showToast(`Error deleting library: ${parseError(error).message}`, "error");
   }
+}
 
-  header.addEventListener("click", (event) => {
-    if ((event.target as HTMLElement).closest(".library-actions")) return;
-    const expanding = body.hidden;
-    setExpanded(body, chevron, expanding);
-    if (expanding) {
-      expandedLibraryIds.add(library.id);
-      loadDocuments(library, body);
-    } else {
-      expandedLibraryIds.delete(library.id);
-    }
+// Child rows nested under the Knowledge sidebar item, one per library — kept in sync with
+// cachedLibraries on every refreshLibraries() call, mirroring the main list. Each row is a
+// .sidebar-item-row (same "row carries the background" pattern as the Knowledge item itself) with
+// three children: the library button, an Edit (pencil) action, and a Delete (trash) action — all
+// siblings, never nested inside one another, since a <button> can't contain another <button>.
+function renderSidebarLibraryTree() {
+  sidebarLibraryTree.innerHTML = "";
+  for (const library of cachedLibraries) {
+    const row = document.createElement("div");
+    row.className = "sidebar-item-row";
+
+    const item = document.createElement("button");
+    item.type = "button";
+    item.className = "sidebar-library-item";
+    item.classList.toggle("active", library.id === currentLibraryId);
+    item.dataset.libraryId = library.id;
+
+    const icon = document.createElement("span");
+    icon.className = "sidebar-icon";
+    icon.innerHTML = ICONS.library;
+
+    const label = document.createElement("span");
+    label.className = "sidebar-label";
+    label.textContent = library.name;
+
+    item.appendChild(icon);
+    item.appendChild(label);
+    item.addEventListener("click", () => openLibraryDetail(library));
+
+    const editButton = document.createElement("button");
+    editButton.type = "button";
+    editButton.className = "sidebar-library-item-action";
+    editButton.title = "Edit library";
+    editButton.setAttribute("aria-label", "Edit library");
+    editButton.innerHTML = `<span class="sidebar-icon">${ICONS.pencil}</span>`;
+    editButton.addEventListener("click", () => openEditLibraryModal(library));
+
+    const deleteButton = document.createElement("button");
+    deleteButton.type = "button";
+    deleteButton.className = "sidebar-library-item-action sidebar-library-item-action-danger";
+    deleteButton.title = "Delete library";
+    deleteButton.setAttribute("aria-label", "Delete library");
+    deleteButton.innerHTML = `<span class="sidebar-icon">${ICONS.trash}</span>`;
+    deleteButton.addEventListener("click", () => deleteLibrary(library));
+
+    row.appendChild(item);
+    row.appendChild(editButton);
+    row.appendChild(deleteButton);
+    sidebarLibraryTree.appendChild(row);
+  }
+}
+
+// Switches to #view-library and populates it for this specific library — the header (name,
+// description, doc-count) plus the same upload/document-grid machinery that used to render inline
+// inside an expanded library card, now mounted into the single shared #library-detail-body.
+function openLibraryDetail(library: Library) {
+  switchToView("library");
+  currentLibraryId = library.id;
+
+  libraryDetailName.textContent = library.name;
+  libraryDetailDescription.textContent = library.description || "No description";
+  libraryDetailDocCount.textContent = `${library.document_count} docs`;
+
+  document.querySelectorAll<HTMLButtonElement>(".sidebar-library-item").forEach((item) => {
+    item.classList.toggle("active", item.dataset.libraryId === library.id);
   });
 
-  card.appendChild(header);
-  card.appendChild(body);
-  return card;
+  loadDocuments(library, libraryDetailBody);
 }
+
+libraryDetailBackButton.addEventListener("click", () => {
+  switchToView("knowledge");
+});
 
 function isDocumentInProgress(doc: LibraryDocument): boolean {
-  return doc.status !== "completed" && doc.status !== "failed";
+  return doc.status !== "completed" && doc.status !== "failed" && doc.status !== "cancelled";
 }
 
 function getPendingUploadSet(libraryId: string): Set<string> {
@@ -965,6 +1182,24 @@ function getPendingUploadSet(libraryId: string): Set<string> {
   return pending;
 }
 
+function getPendingUploadJobIds(libraryId: string): Map<string, string> {
+  let jobIds = pendingUploadJobIds.get(libraryId);
+  if (!jobIds) {
+    jobIds = new Map();
+    pendingUploadJobIds.set(libraryId, jobIds);
+  }
+  return jobIds;
+}
+
+function getCancelRequestedSet(libraryId: string): Set<string> {
+  let cancelling = cancelRequestedUploads.get(libraryId);
+  if (!cancelling) {
+    cancelling = new Set();
+    cancelRequestedUploads.set(libraryId, cancelling);
+  }
+  return cancelling;
+}
+
 function getPendingRetrySet(libraryId: string): Set<string> {
   let retrying = pendingRetryDocumentIds.get(libraryId);
   if (!retrying) {
@@ -972,6 +1207,15 @@ function getPendingRetrySet(libraryId: string): Set<string> {
     pendingRetryDocumentIds.set(libraryId, retrying);
   }
   return retrying;
+}
+
+function getRenamingSet(libraryId: string): Set<string> {
+  let renaming = renamingDocumentIds.get(libraryId);
+  if (!renaming) {
+    renaming = new Set();
+    renamingDocumentIds.set(libraryId, renaming);
+  }
+  return renaming;
 }
 
 function basename(path: string): string {
@@ -1005,7 +1249,7 @@ function renderDocumentsInto(
 // waiting on the request or a later poll tick.
 function rerenderLibraryFromCache(library: Library) {
   const body = libraryDocBodies.get(library.id);
-  if (!body || !expandedLibraryIds.has(library.id)) return;
+  if (!body || currentLibraryId !== library.id) return;
   const documents = lastKnownDocuments.get(library.id) ?? [];
   const pending = Array.from(pendingUploadFilenames.get(library.id) ?? []);
   const retrying = pendingRetryDocumentIds.get(library.id) ?? new Set<string>();
@@ -1017,14 +1261,14 @@ function rerenderLibraryFromCache(library: Library) {
 // whichever body element is currently mounted for this library (via libraryDocBodies, not a
 // captured reference), then starts or stops a background poll depending on whether anything in
 // the list — or an outstanding upload/retry placeholder/crawl job — is still non-terminal.
-// Called on initial expand, right after an upload or retry, and by the poll's own interval — so
-// progress survives collapsing/re-expanding the card, deleting a different library (which
-// rebuilds every card), or just leaving the tab and coming back. Kept running alongside a crawl
-// job's own poll (pollCrawlJob) so pages the crawl finishes show up here as real document rows
-// progressively, not just once the whole crawl completes.
+// Called on initial open, right after an upload or retry, and by the poll's own interval — so
+// progress survives navigating away and back, opening a different library (which reuses the same
+// shared #library-detail-body), or just leaving the tab and coming back. Kept running alongside a
+// crawl job's own poll (pollCrawlJob) so pages the crawl finishes show up here as real document
+// rows progressively, not just once the whole crawl completes.
 async function syncLibraryDocuments(library: Library) {
   const body = libraryDocBodies.get(library.id);
-  if (!body || !expandedLibraryIds.has(library.id)) return;
+  if (!body || currentLibraryId !== library.id) return;
 
   let documents: LibraryDocument[];
   try {
@@ -1040,15 +1284,21 @@ async function syncLibraryDocuments(library: Library) {
   // status) takes over from here, so drop the placeholder to avoid showing both.
   const pending = pendingUploadFilenames.get(library.id);
   if (pending) {
-    for (const doc of documents) pending.delete(doc.source_filename);
+    const jobIds = pendingUploadJobIds.get(library.id);
+    const cancelling = cancelRequestedUploads.get(library.id);
+    for (const doc of documents) {
+      pending.delete(doc.source_filename);
+      jobIds?.delete(doc.source_filename);
+      cancelling?.delete(doc.source_filename);
+    }
   }
   const pendingList = Array.from(pending ?? []);
 
-  // A retried document has actually moved off "failed" server-side — stop overriding its badge.
+  // A retried document has actually moved off "failed"/"cancelled" server-side — stop overriding its badge.
   const retrying = pendingRetryDocumentIds.get(library.id);
   if (retrying) {
     for (const doc of documents) {
-      if (doc.status !== "failed") retrying.delete(doc.id);
+      if (doc.status !== "failed" && doc.status !== "cancelled") retrying.delete(doc.id);
     }
   }
 
@@ -1151,7 +1401,7 @@ function renderDocTable(
     tbody.appendChild(renderCrawlJobRow(job));
   }
   for (const filename of pendingFilenames) {
-    tbody.appendChild(renderPendingRow(filename));
+    tbody.appendChild(renderPendingRow(filename, library));
   }
   for (const doc of pageDocuments) {
     tbody.appendChild(renderDocRow(doc, library, retryingIds.has(doc.id), selected.has(doc.id)));
@@ -1303,7 +1553,7 @@ function renderCrawlJobRow(job: CrawlJobStatus): HTMLElement {
   return row;
 }
 
-function renderPendingRow(filename: string): HTMLElement {
+function renderPendingRow(filename: string, library: Library): HTMLElement {
   const row = document.createElement("tr");
   row.className = "doc-row";
 
@@ -1326,11 +1576,38 @@ function renderPendingRow(filename: string): HTMLElement {
   chunksCell.className = "doc-muted-cell";
   chunksCell.textContent = "—";
 
+  const isCancelling = cancelRequestedUploads.get(library.id)?.has(filename) ?? false;
   const statusCell = document.createElement("td");
-  statusCell.appendChild(renderStatusBadge("uploading"));
+  statusCell.appendChild(renderStatusBadge(isCancelling ? "cancelling" : "uploading"));
 
   const actionsCell = document.createElement("td");
   actionsCell.className = "doc-actions-cell";
+
+  // job_id is only known once upload_document's response has come back — before that, there's
+  // nothing to cancel yet, so no button is shown for the brief window between the optimistic
+  // placeholder appearing and the request actually completing.
+  const jobId = pendingUploadJobIds.get(library.id)?.get(filename);
+  if (jobId && !isCancelling) {
+    const cancelButton = document.createElement("button");
+    cancelButton.type = "button";
+    cancelButton.className = "btn btn-ghost btn-sm";
+    cancelButton.title = "Cancel upload";
+    cancelButton.textContent = "Cancel";
+    cancelButton.addEventListener("click", async () => {
+      getCancelRequestedSet(library.id).add(filename);
+      rerenderLibraryFromCache(library);
+      try {
+        await invoke("cancel_upload_job", { libraryId: library.id, jobId });
+        showToast(`Cancelling "${filename}"…`);
+        await syncLibraryDocuments(library);
+      } catch (error) {
+        getCancelRequestedSet(library.id).delete(filename);
+        rerenderLibraryFromCache(library);
+        showToast(`Error cancelling "${filename}": ${parseError(error).message}`, "error");
+      }
+    });
+    actionsCell.appendChild(cancelButton);
+  }
 
   row.appendChild(selectCell);
   row.appendChild(fileCell);
@@ -1367,6 +1644,9 @@ function renderStatusBadge(status: string): HTMLElement {
   } else if (status === "failed") {
     badge.className = "doc-status doc-status-failed";
     badge.textContent = "Failed";
+  } else if (status === "cancelled") {
+    badge.className = "doc-status doc-status-cancelled";
+    badge.textContent = "Cancelled";
   } else {
     badge.className = "doc-status doc-status-progress";
     const spinner = document.createElement("span");
@@ -1406,12 +1686,60 @@ function renderDocRow(doc: LibraryDocument, library: Library, isRetrying: boolea
   const nameGroup = document.createElement("span");
   nameGroup.className = "doc-name-group";
 
-  // Crawled pages store the full URL as source_filename (file_type "html"), not a filename — a
-  // plain text label reads oddly for that, so make it an actual link to the original page
-  // instead (opened in the system browser, never inside the app's own webview). Either way, the
-  // displayed text is capped to a fixed character count so a very long filename/URL can never
-  // blow out the column's fixed width — the full value is always still on the title tooltip.
-  if (doc.file_type === "html") {
+  const isRenaming = renamingDocumentIds.get(library.id)?.has(doc.id) ?? false;
+
+  const commitRename = async (input: HTMLInputElement) => {
+    const newName = input.value.trim();
+    if (!newName) {
+      showToast("Filename cannot be empty.", "error");
+      return;
+    }
+    if (newName === doc.source_filename) {
+      getRenamingSet(library.id).delete(doc.id);
+      rerenderLibraryFromCache(library);
+      return;
+    }
+    try {
+      await invoke("rename_document", { libraryId: library.id, documentId: doc.id, sourceFilename: newName });
+      getRenamingSet(library.id).delete(doc.id);
+      showToast(`Renamed to "${newName}".`);
+      await syncLibraryDocuments(library);
+    } catch (error) {
+      showToast(`Error renaming document: ${parseError(error).message}`, "error");
+    }
+  };
+  const cancelRename = () => {
+    getRenamingSet(library.id).delete(doc.id);
+    rerenderLibraryFromCache(library);
+  };
+
+  if (isRenaming) {
+    const input = document.createElement("input");
+    input.type = "text";
+    input.className = "doc-rename-input";
+    input.value = doc.source_filename;
+    input.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        void commitRename(input);
+      } else if (event.key === "Escape") {
+        event.preventDefault();
+        cancelRename();
+      }
+    });
+    nameGroup.appendChild(input);
+    // The row isn't attached to the document yet at this point — defer focus until after the
+    // caller has mounted it, otherwise .focus() is a no-op.
+    setTimeout(() => {
+      input.focus();
+      input.select();
+    }, 0);
+  } else if (doc.file_type === "html") {
+    // Crawled pages store the full URL as source_filename (file_type "html"), not a filename — a
+    // plain text label reads oddly for that, so make it an actual link to the original page
+    // instead (opened in the system browser, never inside the app's own webview). Either way, the
+    // displayed text is capped to a fixed character count so a very long filename/URL can never
+    // blow out the column's fixed width — the full value is always still on the title tooltip.
     const link = document.createElement("a");
     link.href = "#";
     link.className = "doc-name doc-name-link";
@@ -1430,10 +1758,12 @@ function renderDocRow(doc: LibraryDocument, library: Library, isRetrying: boolea
     nameGroup.appendChild(name);
   }
 
-  const sub = document.createElement("span");
-  sub.className = "doc-sub";
-  sub.textContent = doc.file_type;
-  nameGroup.appendChild(sub);
+  if (!isRenaming) {
+    const sub = document.createElement("span");
+    sub.className = "doc-sub";
+    sub.textContent = doc.file_type;
+    nameGroup.appendChild(sub);
+  }
 
   fileCell.appendChild(nameGroup);
 
@@ -1459,48 +1789,78 @@ function renderDocRow(doc: LibraryDocument, library: Library, isRetrying: boolea
   const actions = document.createElement("span");
   actions.className = "doc-actions";
 
-  if (!isRetrying && doc.status === "failed") {
-    const retryButton = document.createElement("button");
-    retryButton.type = "button";
-    retryButton.className = "btn btn-sm btn-primary";
-    retryButton.title = "Retry ingestion";
-    retryButton.textContent = "Retry";
-    retryButton.addEventListener("click", async () => {
-      getPendingRetrySet(library.id).add(doc.id);
+  if (isRenaming) {
+    const saveButton = document.createElement("button");
+    saveButton.type = "button";
+    saveButton.className = "btn btn-sm btn-primary";
+    saveButton.textContent = "Save";
+    saveButton.addEventListener("click", () => {
+      const input = nameGroup.querySelector<HTMLInputElement>(".doc-rename-input");
+      if (input) void commitRename(input);
+    });
+    actions.appendChild(saveButton);
+
+    const cancelButton = document.createElement("button");
+    cancelButton.type = "button";
+    cancelButton.className = "btn btn-ghost btn-sm";
+    cancelButton.textContent = "Cancel";
+    cancelButton.addEventListener("click", cancelRename);
+    actions.appendChild(cancelButton);
+  } else {
+    if (!isRetrying && (doc.status === "failed" || doc.status === "cancelled")) {
+      const retryButton = document.createElement("button");
+      retryButton.type = "button";
+      retryButton.className = "btn btn-sm btn-primary";
+      retryButton.title = "Retry ingestion";
+      retryButton.textContent = "Retry";
+      retryButton.addEventListener("click", async () => {
+        getPendingRetrySet(library.id).add(doc.id);
+        rerenderLibraryFromCache(library);
+        try {
+          await invoke("retry_document", { libraryId: library.id, documentId: doc.id });
+          showToast(`Retrying "${doc.source_filename}"…`);
+          await syncLibraryDocuments(library);
+        } catch (error) {
+          getPendingRetrySet(library.id).delete(doc.id);
+          rerenderLibraryFromCache(library);
+          showToast(`Error retrying "${doc.source_filename}": ${parseError(error).message}`, "error");
+        }
+      });
+      actions.appendChild(retryButton);
+    }
+
+    const renameButton = document.createElement("button");
+    renameButton.type = "button";
+    renameButton.className = "btn btn-ghost btn-sm";
+    renameButton.title = "Rename document";
+    renameButton.textContent = "Rename";
+    renameButton.addEventListener("click", () => {
+      getRenamingSet(library.id).add(doc.id);
       rerenderLibraryFromCache(library);
+    });
+    actions.appendChild(renameButton);
+
+    const deleteButton = document.createElement("button");
+    deleteButton.type = "button";
+    deleteButton.className = "btn btn-danger btn-pill";
+    deleteButton.title = "Delete document";
+    deleteButton.textContent = "Delete";
+    deleteButton.addEventListener("click", async () => {
+      const confirmed = await confirm(
+        `Delete "${doc.source_filename}"? This removes it and its embeddings from this library.`,
+        { title: "Delete document", kind: "warning" },
+      );
+      if (!confirmed) return;
       try {
-        await invoke("retry_document", { libraryId: library.id, documentId: doc.id });
-        showToast(`Retrying "${doc.source_filename}"…`);
+        await invoke("delete_document", { libraryId: library.id, documentId: doc.id });
+        showToast(`"${doc.source_filename}" deleted.`);
         await syncLibraryDocuments(library);
       } catch (error) {
-        getPendingRetrySet(library.id).delete(doc.id);
-        rerenderLibraryFromCache(library);
-        showToast(`Error retrying "${doc.source_filename}": ${parseError(error).message}`, "error");
+        showToast(`Error deleting document: ${parseError(error).message}`, "error");
       }
     });
-    actions.appendChild(retryButton);
+    actions.appendChild(deleteButton);
   }
-
-  const deleteButton = document.createElement("button");
-  deleteButton.type = "button";
-  deleteButton.className = "btn btn-danger btn-pill";
-  deleteButton.title = "Delete document";
-  deleteButton.textContent = "Delete";
-  deleteButton.addEventListener("click", async () => {
-    const confirmed = await confirm(
-      `Delete "${doc.source_filename}"? This removes it and its embeddings from this library.`,
-      { title: "Delete document", kind: "warning" },
-    );
-    if (!confirmed) return;
-    try {
-      await invoke("delete_document", { libraryId: library.id, documentId: doc.id });
-      showToast(`"${doc.source_filename}" deleted.`);
-      await syncLibraryDocuments(library);
-    } catch (error) {
-      showToast(`Error deleting document: ${parseError(error).message}`, "error");
-    }
-  });
-  actions.appendChild(deleteButton);
   actionsCell.appendChild(actions);
 
   row.appendChild(selectCell);
@@ -1516,12 +1876,42 @@ function renderUploadRow(library: Library): HTMLElement {
   const wrapper = document.createElement("div");
   wrapper.className = "doc-upload-wrap";
 
-  const dropzone = document.createElement("button");
-  dropzone.type = "button";
-  dropzone.className = "dropzone";
-  dropzone.innerHTML = `<span class="dropzone-icon">${ICONS.upload}</span><span class="dropzone-title">Click to choose a file to upload</span><span class="dropzone-caption">Max file size: ${formatFileSize(MAX_UPLOAD_SIZE_BYTES)}</span>`;
+  const tabHeader = document.createElement("div");
+  tabHeader.className = "doc-upload-tabs";
 
-  dropzone.addEventListener("click", async () => {
+  const fileTabButton = document.createElement("button");
+  fileTabButton.type = "button";
+  fileTabButton.className = "doc-upload-tab";
+  fileTabButton.textContent = "File";
+
+  const urlTabButton = document.createElement("button");
+  urlTabButton.type = "button";
+  urlTabButton.className = "doc-upload-tab";
+  urlTabButton.textContent = "URL";
+
+  tabHeader.appendChild(fileTabButton);
+  tabHeader.appendChild(urlTabButton);
+  wrapper.appendChild(tabHeader);
+
+  // A plain button, not a drag-and-drop styled dropzone — there's no dragover/drop handling here
+  // (Tauri's open() dialog is the only way in), so a dashed drop-target box would promise a
+  // capability that isn't actually there.
+  const uploadControl = document.createElement("div");
+  uploadControl.className = "upload-control";
+
+  const uploadButton = document.createElement("button");
+  uploadButton.type = "button";
+  uploadButton.className = "btn btn-sm btn-primary upload-file-btn";
+  uploadButton.innerHTML = `<span class="btn-icon-inline">${ICONS.upload}</span> Choose file to upload`;
+
+  const uploadCaption = document.createElement("p");
+  uploadCaption.className = "status-text";
+  uploadCaption.textContent = `Max file size: ${formatFileSize(MAX_UPLOAD_SIZE_BYTES)}`;
+
+  uploadControl.appendChild(uploadButton);
+  uploadControl.appendChild(uploadCaption);
+
+  uploadButton.addEventListener("click", async () => {
     const filePath = await open({ multiple: false });
     if (!filePath) return;
     const filename = basename(filePath);
@@ -1551,7 +1941,8 @@ function renderUploadRow(library: Library): HTMLElement {
     rerenderLibraryFromCache(library);
 
     try {
-      await invoke("upload_document", { libraryId: library.id, filePath });
+      const result = await invoke<{ job_id: string }>("upload_document", { libraryId: library.id, filePath });
+      getPendingUploadJobIds(library.id).set(filename, result.job_id);
       // From here on, the placeholder is cleared and progress is tracked by
       // syncLibraryDocuments's poll once the real document row shows up.
       await syncLibraryDocuments(library);
@@ -1565,9 +1956,33 @@ function renderUploadRow(library: Library): HTMLElement {
     }
   });
 
-  wrapper.appendChild(dropzone);
-  wrapper.appendChild(renderUrlIngestForm(library));
+  const urlForm = renderUrlIngestForm(library);
+
+  wrapper.appendChild(uploadControl);
+  wrapper.appendChild(urlForm);
+
+  const applyActiveTab = (tab: "file" | "url") => {
+    fileTabButton.classList.toggle("doc-upload-tab-active", tab === "file");
+    urlTabButton.classList.toggle("doc-upload-tab-active", tab === "url");
+    uploadControl.hidden = tab !== "file";
+    urlForm.hidden = tab !== "url";
+  };
+  applyActiveTab(getActiveUploadTab(library.id));
+
+  fileTabButton.addEventListener("click", () => {
+    activeUploadTab.set(library.id, "file");
+    applyActiveTab("file");
+  });
+  urlTabButton.addEventListener("click", () => {
+    activeUploadTab.set(library.id, "url");
+    applyActiveTab("url");
+  });
+
   return wrapper;
+}
+
+function getActiveUploadTab(libraryId: string): "file" | "url" {
+  return activeUploadTab.get(libraryId) ?? "file";
 }
 
 function renderUrlIngestForm(library: Library): HTMLElement {
@@ -1685,10 +2100,10 @@ async function pollCrawlJob(library: Library, jobId: string) {
   setTimeout(() => void pollCrawlJob(library, jobId), 2000);
 }
 
-// Re-runs the full connection/embeddings load, same sequence as startup. Used by: the manual
-// refresh button, opening the Configuration tab, and init() itself — there's otherwise no way to
-// recover from "app started before the API container did" short of a restart, since everything
-// below only ever ran once, at launch.
+// Re-runs the full connection/embeddings/search-settings load, same sequence as startup. Used by:
+// the manual refresh button, opening either settings view, and init() itself — there's otherwise
+// no way to recover from "app started before the API container did" short of a restart, since
+// everything below only ever ran once, at launch.
 async function refreshConnection() {
   const config = await invoke<AppConfig>("get_config");
   // Skip embeddings-related calls entirely until the connection itself is configured — otherwise
@@ -1696,6 +2111,7 @@ async function refreshConnection() {
   if (hasCredentials(config)) {
     await loadEmbeddingOptions();
     await loadEmbeddingSettingsIntoForm();
+    await loadSearchSettingsIntoForm();
   }
   await checkStatusAndLoad();
 }
@@ -1711,19 +2127,29 @@ connectionRefreshButton.addEventListener("click", async () => {
   }
 });
 
-// Dispatched by shell.ts on every sidebar nav switch — re-check the connection whenever the
-// Configuration tab is opened, so the common case (start the API container, then come look at
-// Configuration) self-heals without needing the manual refresh button.
+// Dispatched by shell.ts on every sidebar nav switch — re-check the connection whenever either
+// settings view (Knowledge API or Embeddings — Re-ranking lives inside Embeddings now, not its
+// own view) is opened, so the common case (start the API container, then come look at settings)
+// self-heals without needing the manual refresh button.
 document.addEventListener("view-changed", (event) => {
-  if ((event as CustomEvent<{ view: string }>).detail.view === "configuration") {
+  const view = (event as CustomEvent<{ view: string }>).detail.view;
+  if (view === "knowledge-api" || view === "embeddings") {
     refreshConnection();
+  }
+  // Navigating away from the library detail view stops treating any library as "current" — this
+  // is what rerenderLibraryFromCache/syncLibraryDocuments check before touching the shared
+  // #library-detail-body, so a background poll for whatever library you just left won't keep
+  // rendering into (now-hidden) content on every tick just because nothing else has claimed it yet.
+  if (view !== "library") {
+    currentLibraryId = null;
+    document.querySelectorAll<HTMLButtonElement>(".sidebar-library-item").forEach((item) => {
+      item.classList.remove("active");
+    });
   }
 });
 
 async function init() {
   initShell();
-  initAccordion("connection-card-header", "connection-card-body", "connection-chevron");
-  initAccordion("embeddings-card-header", "embeddings-card-body", "embeddings-chevron");
   initPasswordToggle("client-secret", "client-secret-toggle");
   initPasswordToggle("embed-settings-api-key", "embed-settings-api-key-toggle");
   await loadSettingsIntoForm();
