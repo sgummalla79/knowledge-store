@@ -48,55 +48,6 @@ interface CrawlJobStatus {
   pages: Record<string, CrawlPageStatus>;
 }
 
-interface EmbeddingProviderOption {
-  name: string;
-  api_key_required: boolean;
-  base_url_required: boolean;
-  base_url_supported: boolean;
-  default_base_url: string | null;
-  // Voyage has no model-listing capability at all (no adapter method) — this is false for it and
-  // true for ollama/openai_compatible, per POST /embedding-options/models.
-  supports_model_listing: boolean;
-}
-
-// Purely a convenience suggestion for the UI to offer as a one-click fill — never validated or
-// enforced server-side, and NOT filtered to only the currently-enabled providers, so any use of
-// this must cross-check `provider` against the actual (enabled) providers list before offering it.
-interface EmbeddingModelPreset {
-  provider: string;
-  model: string;
-  dimensions: number;
-}
-
-interface EmbeddingOptions {
-  providers: EmbeddingProviderOption[];
-  default_provider: string;
-  default_model: string;
-  suggested_models: EmbeddingModelPreset[];
-}
-
-interface EmbeddingSettingsStatus {
-  provider: string | null;
-  model: string | null;
-  configured: boolean;
-  base_url: string | null;
-  dimensions: number | null;
-  chunk_size: number;
-  chunk_overlap: number;
-  updated_at: string | null;
-}
-
-// Re-ranking was removed entirely from knowledge-api (it was unreachable — an empty provider
-// allow-list — and had a latent bug where enabling it would silently break for any deployment not
-// using Voyage for embeddings). No "configured" boolean, unlike EmbeddingSettingsStatus — search
-// settings always exist (with defaults) rather than being an optional resource.
-interface SearchSettingsStatus {
-  dense_k: number;
-  sparse_k: number;
-  rrf_k: number;
-  updated_at: string | null;
-}
-
 interface AppError {
   code: string;
   message: string;
@@ -155,33 +106,6 @@ const disconnectButton = document.querySelector<HTMLButtonElement>("#disconnect-
 // an OAuth2 client_credentials exchange succeeds. Tracked here purely so saving the Connection
 // form (e.g. just to change the API base URL) round-trips it instead of silently wiping it out.
 let currentRefreshToken = "";
-
-const embeddingsBadge = document.querySelector<HTMLSpanElement>("#embeddings-badge")!;
-const embeddingsForm = document.querySelector<HTMLFormElement>("#embeddings-form")!;
-const embedSettingsProviderSelect = document.querySelector<HTMLSelectElement>("#embed-settings-provider")!;
-const embedSettingsModelInput = document.querySelector<HTMLInputElement>("#embed-settings-model")!;
-const embedSettingsModelDatalist = document.querySelector<HTMLDataListElement>("#embed-settings-model-list")!;
-const embedSettingsDimensionsSelect = document.querySelector<HTMLSelectElement>("#embed-settings-dimensions")!;
-const embedSettingsChunkSizeInput = document.querySelector<HTMLInputElement>("#embed-settings-chunk-size")!;
-const embedSettingsChunkOverlapInput = document.querySelector<HTMLInputElement>("#embed-settings-chunk-overlap")!;
-const embedSettingsBaseUrlField = document.querySelector<HTMLLabelElement>("#embed-settings-base-url-field")!;
-const embedSettingsBaseUrlInput = document.querySelector<HTMLInputElement>("#embed-settings-base-url")!;
-const embedSettingsBaseUrlHint = document.querySelector<HTMLParagraphElement>("#embed-settings-base-url-hint")!;
-const embedSettingsApiKeyField = document.querySelector<HTMLLabelElement>("#embed-settings-api-key-field")!;
-const embedSettingsApiKeyInput = document.querySelector<HTMLInputElement>("#embed-settings-api-key")!;
-const embedSettingsApiKeyToggle = document.querySelector<HTMLButtonElement>("#embed-settings-api-key-toggle")!;
-const embeddingsSaveButton = document.querySelector<HTMLButtonElement>("#embeddings-save-btn")!;
-const embeddingsRemoveButton = document.querySelector<HTMLButtonElement>("#embeddings-remove-btn")!;
-const embeddingsFormStatus = document.querySelector<HTMLParagraphElement>("#embeddings-form-status")!;
-const embeddingsDisabledHint = document.querySelector<HTMLParagraphElement>("#embeddings-disabled-hint")!;
-const embeddingsLockedHint = document.querySelector<HTMLParagraphElement>("#embed-settings-locked-hint")!;
-const embedSettingsModelFetchHint = document.querySelector<HTMLParagraphElement>("#embed-settings-model-fetch-hint")!;
-
-const searchSettingsForm = document.querySelector<HTMLFormElement>("#search-settings-form")!;
-const searchSettingsDenseKInput = document.querySelector<HTMLInputElement>("#search-settings-dense-k")!;
-const searchSettingsSparseKInput = document.querySelector<HTMLInputElement>("#search-settings-sparse-k")!;
-const searchSettingsRrfKInput = document.querySelector<HTMLInputElement>("#search-settings-rrf-k")!;
-const searchSettingsFormStatus = document.querySelector<HTMLParagraphElement>("#search-settings-form-status")!;
 
 const statusBanner = document.querySelector<HTMLDivElement>("#status-banner")!;
 
@@ -294,28 +218,6 @@ function truncateText(text: string, maxChars: number = MAX_FILENAME_DISPLAY_CHAR
   return `${text.slice(0, maxChars - 1)}…`;
 }
 
-// Cached in full so provider-select changes can be recomputed client-side without a network
-// round trip.
-let embeddingOptions: EmbeddingOptions | null = null;
-// Mirrors setEmbeddingsFormEnabled's "enabled" input — tracked as state (not just read off a
-// field's current .disabled) so refreshEmbeddingsGating can recompute from scratch every time.
-let embeddingsConnectionOk = false;
-// Mirrors applyEmbeddingLockState's "identityLocked" input, same reason.
-let currentIdentityLocked = false;
-// The provider a real, saved config currently exists for (null if unconfigured) — lets
-// refreshEmbeddingsGating treat "already has a key saved server-side" as satisfying the
-// api-key/base-url prerequisite without requiring it to be re-typed, but only while the selected
-// provider hasn't changed out from under that saved config.
-let currentConfiguredProvider: string | null = null;
-// Last successful live model-listing result per provider — populateModelDatalist reads from this
-// on every gating refresh (e.g. every keystroke) without re-fetching; only scheduleModelFetch's
-// debounced call ever writes to it.
-const liveModelsByProvider = new Map<string, string[]>();
-let modelFetchDebounceTimer: ReturnType<typeof setTimeout> | undefined;
-// Bumped on every new fetch attempt so a slow, superseded request can recognize it's stale and
-// discard its result instead of clobbering whatever a more recent request already rendered.
-let modelFetchRequestToken = 0;
-
 // Mirrors pragna2's PasswordInput: an eye icon inside the field that toggles the
 // input between password/text and swaps its own icon + aria-label to match.
 function initPasswordToggle(inputId: string, toggleId: string) {
@@ -332,19 +234,15 @@ function initPasswordToggle(inputId: string, toggleId: string) {
   });
 }
 
-// linkView picks which settings page the banner's link jumps to — "knowledge-api" for connection
-// problems, "embeddings" for embeddings-provider problems — now that those used to be one
-// combined Configuration tab and are two separate sidebar destinations.
-function renderBanner(message: string, linkView: "knowledge-api" | "embeddings") {
-  const linkLabel = linkView === "knowledge-api" ? "Go to Knowledge API" : "Go to Embeddings";
+function renderBanner(message: string) {
   statusBanner.innerHTML = `
     <div class="banner banner-warning">
       <span class="banner-icon">${ICONS.alertTriangle}</span>
-      <span>${message} <button type="button" class="banner-link" id="banner-config-link">${linkLabel}</button></span>
+      <span>${message} <button type="button" class="banner-link" id="banner-config-link">Go to Knowledge API</button></span>
     </div>
   `;
   document.querySelector<HTMLButtonElement>("#banner-config-link")?.addEventListener("click", () => {
-    switchToView(linkView);
+    switchToView("knowledge-api");
   });
 }
 
@@ -417,8 +315,8 @@ async function loadSettingsIntoForm(): Promise<AppConfig> {
   const config = await invoke<AppConfig>("get_config");
   apiBaseUrlInput.value = config.api_base_url;
   clientIdInput.value = config.client_id;
-  // Client Secret is never re-populated from storage — same write-only convention as the
-  // embeddings API key field.
+  // Client Secret is never re-populated from storage — it's write-only, matching how
+  // knowledge-api itself only ever shows a secret once, at issuance.
   currentRefreshToken = config.refresh_token;
   setConnectionBadge(hasCredentials(config) ? "checking" : "not_configured");
   return config;
@@ -447,15 +345,11 @@ settingsForm.addEventListener("submit", async (event) => {
       } catch (authError) {
         showToast(`Saved, but authentication failed: ${parseError(authError).message}`, "error");
         setConnectionBadge("invalid");
-        setEmbeddingsFormEnabled(false, "Configure your connection above first.");
         return;
       }
       showToast("Connection saved.");
-      await loadEmbeddingOptions();
-      await loadEmbeddingSettingsIntoForm();
     } else {
       showToast("Connection saved.");
-      setEmbeddingsFormEnabled(false, "Configure your connection above first.");
     }
     await checkStatusAndLoad();
   } catch (error) {
@@ -475,399 +369,11 @@ disconnectButton.addEventListener("click", async () => {
     clientSecretInput.value = "";
     currentRefreshToken = "";
     setConnectionBadge("not_configured");
-    setEmbeddingsFormEnabled(false, "Configure your connection above first.");
     librariesList.innerHTML = "";
-    renderBanner("Not connected — configure your API connection first.", "knowledge-api");
+    renderBanner("Not connected — configure your API connection first.");
     showToast("Disconnected.");
   } catch (error) {
     showToast(`Error disconnecting: ${parseError(error).message}`, "error");
-  }
-});
-
-function formatProviderLabel(name: string): string {
-  return name.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
-}
-
-// Every provider-dependent bit of the form (base URL visibility/requiredness, whether an API key
-// field even applies) is data-driven off this, never a hardcoded check against a specific
-// provider name. Hiding a field also clears it and drops its `required` — switching providers
-// must never leave a stale, invisible value able to sneak into the next save, and a hidden
-// field must never stay `required` (relying on browsers skipping validation on non-rendered
-// elements would work by accident, not by being correctly coded).
-function applyProviderMeta(provider: EmbeddingProviderOption) {
-  embedSettingsBaseUrlField.hidden = !provider.base_url_supported;
-  embedSettingsBaseUrlHint.hidden = !provider.base_url_supported;
-  embedSettingsBaseUrlInput.required = provider.base_url_supported && provider.base_url_required;
-  if (!provider.base_url_supported) embedSettingsBaseUrlInput.value = "";
-  // Only ollama has a default_base_url — the static HTML placeholder was written for it and
-  // would otherwise stay stuck showing an Ollama-specific hint on a field that's actually
-  // required for a different provider (e.g. openai_compatible, which has no universal default).
-  embedSettingsBaseUrlInput.placeholder = provider.default_base_url ?? "https://your-endpoint.example.com";
-
-  embedSettingsApiKeyField.hidden = !provider.api_key_required;
-  embedSettingsApiKeyInput.required = provider.api_key_required;
-  if (!provider.api_key_required) embedSettingsApiKeyInput.value = "";
-}
-
-// Common embedding vector sizes across widely-used models (MiniLM/nomic-embed-text at 384/768,
-// OpenAI's text-embedding-3-small/large at 1536/3072, Voyage/Cohere-class models around 1024,
-// etc.) — a picker over free-typing avoids a typo silently producing a broken embedding column,
-// since knowledge-api takes this value as-given with no way to validate it against the model.
-const STANDARD_EMBEDDING_DIMENSIONS = [256, 384, 512, 768, 1024, 1536, 2048, 3072, 4096];
-
-// Always includes the standard set, plus any dimensions the API's suggested_models presets use
-// (in case one falls outside the standard list) and whatever is currently selected/configured —
-// so loading an existing config never lands on a value that isn't actually in the list.
-function populateDimensionsOptions(selectedValue: number | null) {
-  const values = new Set(STANDARD_EMBEDDING_DIMENSIONS);
-  for (const preset of embeddingOptions?.suggested_models ?? []) values.add(preset.dimensions);
-  if (selectedValue != null) values.add(selectedValue);
-
-  const previousValue = embedSettingsDimensionsSelect.value;
-  embedSettingsDimensionsSelect.innerHTML = "";
-  for (const dim of Array.from(values).sort((a, b) => a - b)) {
-    const option = document.createElement("option");
-    option.value = String(dim);
-    option.textContent = String(dim);
-    embedSettingsDimensionsSelect.appendChild(option);
-  }
-  embedSettingsDimensionsSelect.value = selectedValue != null ? String(selectedValue) : previousValue;
-}
-
-// Model is a free-text input with a <datalist> of suggestions, not a closed dropdown — the API
-// explicitly accepts any model name for any provider (there's no validation against a fixed
-// list), so restricting it to a picker would remove real capability, especially for Voyage where
-// the only known name is one static preset and would otherwise never be able to move past it.
-// Live models (from POST /embedding-options/models, cached in liveModelsByProvider) take priority
-// when available for this provider; falls back to the static suggested_models preset otherwise
-// (Voyage, which has no listing capability, or before a fetch has completed). This only refreshes
-// the suggestion list — it never touches the input's current value, unlike a <select>'s options.
-function populateModelDatalist(providerName: string) {
-  const live = liveModelsByProvider.get(providerName);
-  const names =
-    live && live.length > 0
-      ? live
-      : (embeddingOptions?.suggested_models ?? []).filter((p) => p.provider === providerName).map((p) => p.model);
-
-  embedSettingsModelDatalist.innerHTML = "";
-  for (const name of names) {
-    const option = document.createElement("option");
-    option.value = name;
-    embedSettingsModelDatalist.appendChild(option);
-  }
-}
-
-// True once the currently-selected provider can actually be used: a provider is selected, and if
-// it requires an API key and/or connection URL, one is either freshly typed in or already saved
-// server-side for this exact provider (so re-opening an existing config doesn't demand the
-// write-only key be re-entered just to keep editing chunk_size).
-function embeddingPrerequisitesMet(): boolean {
-  const meta = embeddingOptions?.providers.find((p) => p.name === embedSettingsProviderSelect.value);
-  if (!meta) return false;
-  const alreadyConfigured =
-    currentConfiguredProvider !== null && currentConfiguredProvider === embedSettingsProviderSelect.value;
-  const apiKeyOk = !meta.api_key_required || embedSettingsApiKeyInput.value.trim() !== "" || alreadyConfigured;
-  const baseUrlOk = !meta.base_url_required || embedSettingsBaseUrlInput.value.trim() !== "" || alreadyConfigured;
-  return apiKeyOk && baseUrlOk;
-}
-
-// Fetching needs the actual credential VALUES (the endpoint has nothing else to send them with)
-// — unlike embeddingPrerequisitesMet, "already configured" doesn't count, since the real key is
-// write-only and never re-sent from a blank input. Providers without listing capability (Voyage)
-// never attempt this at all.
-function canAttemptModelFetch(meta: EmbeddingProviderOption | undefined): boolean {
-  if (!meta?.supports_model_listing) return false;
-  if (meta.api_key_required && !embedSettingsApiKeyInput.value.trim()) return false;
-  if (meta.base_url_required && !embedSettingsBaseUrlInput.value.trim()) return false;
-  return true;
-}
-
-// Debounced (the server rate-limits this to 10/min) — fires at most once per pause in typing,
-// not on every keystroke. Called from refreshEmbeddingsGating, so every place that already
-// re-evaluates gating (provider switch, api-key/base-url typing, initial load) also considers a
-// fetch, without needing its own separate wiring at each call site.
-function scheduleModelFetch() {
-  if (modelFetchDebounceTimer) clearTimeout(modelFetchDebounceTimer);
-  modelFetchDebounceTimer = setTimeout(() => void fetchLiveModels(), 600);
-}
-
-async function fetchLiveModels() {
-  const providerName = embedSettingsProviderSelect.value;
-  const meta = embeddingOptions?.providers.find((p) => p.name === providerName);
-  if (!embeddingsConnectionOk || !canAttemptModelFetch(meta)) return;
-
-  const requestToken = ++modelFetchRequestToken;
-  const payload: Record<string, unknown> = { provider: providerName };
-  if (!embedSettingsApiKeyField.hidden && embedSettingsApiKeyInput.value) {
-    payload.api_key = embedSettingsApiKeyInput.value;
-  }
-  if (!embedSettingsBaseUrlField.hidden && embedSettingsBaseUrlInput.value) {
-    payload.base_url = embedSettingsBaseUrlInput.value;
-  }
-
-  embedSettingsModelFetchHint.hidden = false;
-  embedSettingsModelFetchHint.textContent = "Fetching models…";
-  try {
-    const result = await invoke<{ models: string[] }>("list_embedding_models", { payload });
-    if (requestToken !== modelFetchRequestToken) return; // superseded by a newer request
-    liveModelsByProvider.set(providerName, result.models);
-    populateModelDatalist(providerName);
-    embedSettingsModelFetchHint.hidden = result.models.length > 0;
-    if (result.models.length === 0) embedSettingsModelFetchHint.textContent = "No models returned by the provider.";
-  } catch (error) {
-    if (requestToken !== modelFetchRequestToken) return;
-    embedSettingsModelFetchHint.hidden = false;
-    embedSettingsModelFetchHint.textContent = `Could not fetch models: ${parseError(error).message}`;
-  }
-}
-
-// Model, Dimensions, Chunk size/overlap, and Save all gate on this — recomputed fully from
-// scratch on every relevant change (provider switch, api-key/base-url typing, connection status,
-// chunk-existence lock), never just added to, since prerequisites can become newly *satisfied* as
-// the user types, not just newly unsatisfied.
-function refreshEmbeddingsGating() {
-  populateModelDatalist(embedSettingsProviderSelect.value);
-
-  const prereqsMet = embeddingPrerequisitesMet();
-  const modelFieldsReady = embeddingsConnectionOk && prereqsMet && !currentIdentityLocked;
-  const saveReady = embeddingsConnectionOk && prereqsMet;
-
-  embedSettingsModelInput.disabled = !modelFieldsReady;
-  embedSettingsDimensionsSelect.disabled = !modelFieldsReady;
-  embedSettingsChunkSizeInput.disabled = !saveReady;
-  embedSettingsChunkOverlapInput.disabled = !saveReady;
-  embeddingsSaveButton.disabled = !saveReady;
-
-  // A provider without listing capability (e.g. Voyage — no list_models() adapter method at all)
-  // will never produce a live result no matter what's typed, so say so explicitly instead of
-  // silently doing nothing when credentials are entered — that reads as broken, not "unsupported."
-  const meta = embeddingOptions?.providers.find((p) => p.name === embedSettingsProviderSelect.value);
-  if (meta && !meta.supports_model_listing) {
-    embedSettingsModelFetchHint.hidden = false;
-    embedSettingsModelFetchHint.textContent =
-      "This provider doesn't support listing its own models — showing the suggested model only.";
-    return;
-  }
-  embedSettingsModelFetchHint.hidden = true;
-
-  scheduleModelFetch();
-}
-
-embedSettingsProviderSelect.addEventListener("change", () => {
-  const meta = embeddingOptions?.providers.find((p) => p.name === embedSettingsProviderSelect.value);
-  if (meta) applyProviderMeta(meta);
-  refreshEmbeddingsGating();
-});
-embedSettingsApiKeyInput.addEventListener("input", refreshEmbeddingsGating);
-embedSettingsBaseUrlInput.addEventListener("input", refreshEmbeddingsGating);
-
-async function loadEmbeddingOptions() {
-  try {
-    const options = await invoke<EmbeddingOptions>("get_embedding_options");
-    embeddingOptions = options;
-
-    embedSettingsProviderSelect.innerHTML = "";
-    for (const provider of options.providers) {
-      const option = document.createElement("option");
-      option.value = provider.name;
-      option.textContent = formatProviderLabel(provider.name);
-      embedSettingsProviderSelect.appendChild(option);
-    }
-    if (!embedSettingsProviderSelect.value) {
-      embedSettingsProviderSelect.value = options.default_provider;
-    }
-
-    populateModelDatalist(embedSettingsProviderSelect.value);
-    populateDimensionsOptions(null);
-
-    const meta = options.providers.find((p) => p.name === embedSettingsProviderSelect.value);
-    if (meta) applyProviderMeta(meta);
-  } catch (error) {
-    embeddingsFormStatus.textContent = `Could not load embedding options: ${parseError(error).message}`;
-  }
-}
-
-// The Embeddings form is only enabled once we've actually round-tripped to the API and back —
-// not just because a connection is locally saved, which could be stale/wrong. Model, Dimensions,
-// Chunk size/overlap, and Save are owned by refreshEmbeddingsGating (they additionally depend on
-// api-key/base-url prerequisites, not just connection status), so only recorded into
-// embeddingsConnectionOk here and left to that function rather than set directly.
-function setEmbeddingsFormEnabled(enabled: boolean, hint?: string) {
-  embeddingsConnectionOk = enabled;
-  embedSettingsProviderSelect.disabled = !enabled;
-  embedSettingsBaseUrlInput.disabled = !enabled;
-  embedSettingsApiKeyInput.disabled = !enabled;
-  embedSettingsApiKeyToggle.disabled = !enabled;
-  embeddingsRemoveButton.disabled = !enabled;
-  embeddingsDisabledHint.hidden = enabled;
-  if (hint) embeddingsDisabledHint.textContent = hint;
-  refreshEmbeddingsGating();
-}
-
-// knowledge-api locks provider/model/base_url/dimensions together (its "model identity") the
-// moment any chunk exists anywhere across every library — chunk_size, chunk_overlap, and api_key
-// stay changeable regardless. There's no field on GET /embedding-settings that reports this
-// directly, so it's inferred here from the same fact the server itself checks (a nonzero global
-// chunk count) via the already-loaded library list.
-function anyChunksExist(): boolean {
-  return cachedLibraries.some((lib) => lib.chunk_count > 0);
-}
-
-// Applied on top of setEmbeddingsFormEnabled(true) — only re-disables provider/base_url here;
-// Model/Dimensions are also identity-locked, but that's applied inside refreshEmbeddingsGating
-// (via currentIdentityLocked) since they need to be recomputed alongside the api-key/base-url
-// prerequisite check, not just this lock.
-//
-// identityLocked mirrors the server's own rule exactly (existing config + a real identity change
-// + chunks>0), gating provider/model/dimensions/base_url.
-function applyEmbeddingLockState(identityLocked: boolean) {
-  currentIdentityLocked = identityLocked;
-  embedSettingsProviderSelect.disabled ||= identityLocked;
-  embedSettingsBaseUrlInput.disabled ||= identityLocked;
-  embeddingsLockedHint.hidden = !identityLocked;
-  refreshEmbeddingsGating();
-}
-
-// The delete button's hidden and disabled state are computed together, from the same two
-// booleans, in exactly one place — hidden and disabled used to be set independently by different
-// functions (setEmbeddingsFormEnabled unconditionally re-enabling it, a separate lock-state
-// function only ever adding disabling back on top), which could leave it enabled while
-// unconfigured since nothing re-derived "enabled" from "configured" after the fact. Delete only
-// ever makes sense when there's something configured to delete AND no chunk exists anywhere to
-// protect (matches applyEmbeddingLockState's rule against reset-as-a-loophole).
-function applyEmbeddingDeleteButtonState(configured: boolean, chunksExist: boolean) {
-  embeddingsRemoveButton.hidden = !configured;
-  embeddingsRemoveButton.disabled = !configured || chunksExist;
-}
-
-function setEmbeddingsBadge(configured: boolean) {
-  embeddingsBadge.textContent = configured ? "Configured" : "Not configured";
-  embeddingsBadge.classList.toggle("badge-success", configured);
-  embeddingsBadge.classList.toggle("badge-destructive", !configured);
-}
-
-function populateEmbeddingSettingsForm(status: EmbeddingSettingsStatus) {
-  setEmbeddingsBadge(status.configured);
-  currentConfiguredProvider = status.configured ? status.provider : null;
-
-  // With exactly one enabled provider there's nothing to actually pick — default straight to it,
-  // and to its suggested model/dimensions too, so a fresh single-provider deployment arrives
-  // ready to just click Save instead of requiring the user to fill in a foregone conclusion.
-  const soleProvider = embeddingOptions?.providers.length === 1 ? embeddingOptions.providers[0] : null;
-  const soleProviderPreset = soleProvider
-    ? (embeddingOptions?.suggested_models.find((p) => p.provider === soleProvider.name) ?? null)
-    : null;
-
-  const providerValue = status.provider ?? soleProvider?.name;
-  if (providerValue) embedSettingsProviderSelect.value = providerValue;
-
-  populateModelDatalist(embedSettingsProviderSelect.value);
-  embedSettingsModelInput.value = status.model ?? (!status.configured ? (soleProviderPreset?.model ?? "") : "");
-  populateDimensionsOptions(
-    status.dimensions ?? (!status.configured ? soleProviderPreset?.dimensions : undefined) ?? null,
-  );
-
-  embedSettingsChunkSizeInput.value = String(status.chunk_size);
-  embedSettingsChunkOverlapInput.value = String(status.chunk_overlap);
-  embedSettingsBaseUrlInput.value = status.base_url ?? "";
-  embedSettingsApiKeyInput.value = "";
-
-  const meta = embeddingOptions?.providers.find((p) => p.name === embedSettingsProviderSelect.value);
-  if (meta) applyProviderMeta(meta);
-}
-
-async function loadEmbeddingSettingsIntoForm() {
-  try {
-    const status = await invoke<EmbeddingSettingsStatus>("get_embedding_settings");
-    populateEmbeddingSettingsForm(status);
-    setEmbeddingsFormEnabled(true);
-    const chunksExist = anyChunksExist();
-    applyEmbeddingLockState(status.configured && chunksExist);
-    applyEmbeddingDeleteButtonState(status.configured, chunksExist);
-  } catch (error) {
-    setEmbeddingsBadge(false);
-    setEmbeddingsFormEnabled(false, `Could not reach the API: ${parseError(error).message}`);
-  }
-}
-
-embeddingsForm.addEventListener("submit", async (event) => {
-  event.preventDefault();
-  try {
-    const payload: Record<string, unknown> = {
-      provider: embedSettingsProviderSelect.value,
-      model: embedSettingsModelInput.value,
-      dimensions: Number(embedSettingsDimensionsSelect.value),
-      chunk_size: Number(embedSettingsChunkSizeInput.value),
-      chunk_overlap: Number(embedSettingsChunkOverlapInput.value),
-    };
-    // Guarded on the field's own hidden state, not just a truthy .value — applyProviderMeta
-    // clears both when they're hidden, but checking hidden here too means a stale value can
-    // never reach the payload even if that invariant were ever broken elsewhere.
-    if (!embedSettingsApiKeyField.hidden && embedSettingsApiKeyInput.value) {
-      payload.api_key = embedSettingsApiKeyInput.value;
-    }
-    if (!embedSettingsBaseUrlField.hidden && embedSettingsBaseUrlInput.value) {
-      payload.base_url = embedSettingsBaseUrlInput.value;
-    }
-    const status = await invoke<EmbeddingSettingsStatus>("save_embedding_settings", { payload });
-    showToast("Embedding configuration saved.");
-    populateEmbeddingSettingsForm(status);
-    const chunksExist = anyChunksExist();
-    applyEmbeddingLockState(status.configured && chunksExist);
-    applyEmbeddingDeleteButtonState(status.configured, chunksExist);
-    await checkStatusAndLoad();
-  } catch (error) {
-    showToast(`Error saving embedding configuration: ${parseError(error).message}`, "error");
-  }
-});
-
-embeddingsRemoveButton.addEventListener("click", async () => {
-  const confirmed = await confirm(
-    "Delete the embedding configuration? Uploads and search may be affected until reconfigured.",
-    { title: "Delete configuration", kind: "warning" },
-  );
-  if (!confirmed) return;
-  try {
-    const status = await invoke<EmbeddingSettingsStatus>("clear_embedding_settings");
-    showToast("Embedding configuration deleted.");
-    populateEmbeddingSettingsForm(status);
-    const chunksExist = anyChunksExist();
-    applyEmbeddingLockState(status.configured && chunksExist);
-    applyEmbeddingDeleteButtonState(status.configured, chunksExist);
-    await checkStatusAndLoad();
-  } catch (error) {
-    showToast(`Error deleting embedding configuration: ${parseError(error).message}`, "error");
-  }
-});
-
-function populateSearchSettingsForm(status: SearchSettingsStatus) {
-  searchSettingsDenseKInput.value = String(status.dense_k);
-  searchSettingsSparseKInput.value = String(status.sparse_k);
-  searchSettingsRrfKInput.value = String(status.rrf_k);
-}
-
-async function loadSearchSettingsIntoForm() {
-  try {
-    const status = await invoke<SearchSettingsStatus>("get_search_settings");
-    populateSearchSettingsForm(status);
-  } catch (error) {
-    searchSettingsFormStatus.textContent = `Could not reach the API: ${parseError(error).message}`;
-  }
-}
-
-searchSettingsForm.addEventListener("submit", async (event) => {
-  event.preventDefault();
-  try {
-    const payload = {
-      dense_k: Number(searchSettingsDenseKInput.value),
-      sparse_k: Number(searchSettingsSparseKInput.value),
-      rrf_k: Number(searchSettingsRrfKInput.value),
-    };
-    const status = await invoke<SearchSettingsStatus>("save_search_settings", { payload });
-    showToast("Search settings saved.");
-    populateSearchSettingsForm(status);
-  } catch (error) {
-    showToast(`Error saving search settings: ${parseError(error).message}`, "error");
   }
 });
 
@@ -962,14 +468,13 @@ editLibraryForm.addEventListener("submit", async (event) => {
   }
 });
 
-// The three states this distinguishes: (1) no local connection configured at all, (2) connection
-// configured but rag-api rejects the credentials (401), (3) rag-api reachable but embeddings
-// aren't configured there yet — libraries can still be listed/created, only ingestion/query need it.
+// The two states this distinguishes: (1) no local connection configured at all, (2) connection
+// configured but rag-api rejects the credentials (401).
 async function checkStatusAndLoad() {
   const config = await invoke<AppConfig>("get_config");
   if (!hasCredentials(config)) {
     setConnectionBadge("not_configured");
-    renderBanner("Not connected — configure your API connection first.", "knowledge-api");
+    renderBanner("Not connected — configure your API connection first.");
     librariesList.innerHTML = "";
     sidebarLibraryTree.innerHTML = "";
     return;
@@ -981,10 +486,10 @@ async function checkStatusAndLoad() {
     const error = parseError(rawError);
     if (error.code === "unauthorized") {
       setConnectionBadge("invalid");
-      renderBanner("Your client credentials look invalid or expired — update them in Knowledge API.", "knowledge-api");
+      renderBanner("Your client credentials look invalid or expired — update them in Knowledge API.");
     } else {
       setConnectionBadge("unreachable");
-      renderBanner(`Error loading libraries: ${error.message}`, "knowledge-api");
+      renderBanner(`Error loading libraries: ${error.message}`);
     }
     librariesList.innerHTML = "";
     sidebarLibraryTree.innerHTML = "";
@@ -995,15 +500,6 @@ async function checkStatusAndLoad() {
   clearBanner();
   renderLibraryList();
   renderSidebarLibraryTree();
-
-  try {
-    const embeddingStatus = await invoke<EmbeddingSettingsStatus>("get_embedding_settings");
-    if (!embeddingStatus.configured) {
-      renderBanner("Embeddings aren't configured — set up your embeddings provider to enable uploads and search.", "embeddings");
-    }
-  } catch {
-    // Non-blocking check — if it fails, the library list already loaded fine, so just skip it.
-  }
 }
 
 function renderLibraryList() {
@@ -2096,41 +1592,24 @@ async function pollCrawlJob(library: Library, jobId: string) {
   setTimeout(() => void pollCrawlJob(library, jobId), 2000);
 }
 
-// Re-runs the full connection/embeddings/search-settings load, same sequence as startup. Used by:
-// the manual refresh button, opening either settings view, and init() itself — there's otherwise
-// no way to recover from "app started before the API container did" short of a restart, since
-// everything below only ever ran once, at launch.
-async function refreshConnection() {
-  const config = await invoke<AppConfig>("get_config");
-  // Skip embeddings-related calls entirely until the connection itself is configured — otherwise
-  // they'd just fail with a confusing "Invalid or missing credentials" before the user has done anything.
-  if (hasCredentials(config)) {
-    await loadEmbeddingOptions();
-    await loadEmbeddingSettingsIntoForm();
-    await loadSearchSettingsIntoForm();
-  }
-  await checkStatusAndLoad();
-}
-
 connectionRefreshButton.addEventListener("click", async () => {
   connectionRefreshButton.disabled = true;
   connectionRefreshIcon.classList.add("spinning");
   try {
-    await refreshConnection();
+    await checkStatusAndLoad();
   } finally {
     connectionRefreshButton.disabled = false;
     connectionRefreshIcon.classList.remove("spinning");
   }
 });
 
-// Dispatched by shell.ts on every sidebar nav switch — re-check the connection whenever either
-// settings view (Knowledge API or Embeddings — Re-ranking lives inside Embeddings now, not its
-// own view) is opened, so the common case (start the API container, then come look at settings)
-// self-heals without needing the manual refresh button.
+// Dispatched by shell.ts on every sidebar nav switch — re-check the connection whenever the
+// Knowledge API settings view is opened, so the common case (start the API container, then come
+// look at settings) self-heals without needing the manual refresh button.
 document.addEventListener("view-changed", (event) => {
   const view = (event as CustomEvent<{ view: string }>).detail.view;
-  if (view === "knowledge-api" || view === "embeddings") {
-    refreshConnection();
+  if (view === "knowledge-api") {
+    checkStatusAndLoad();
   }
   // Navigating away from the library detail view stops treating any library as "current" — this
   // is what rerenderLibraryFromCache/syncLibraryDocuments check before touching the shared
@@ -2147,9 +1626,8 @@ document.addEventListener("view-changed", (event) => {
 async function init() {
   initShell();
   initPasswordToggle("client-secret", "client-secret-toggle");
-  initPasswordToggle("embed-settings-api-key", "embed-settings-api-key-toggle");
   await loadSettingsIntoForm();
-  await refreshConnection();
+  await checkStatusAndLoad();
 }
 
 init();

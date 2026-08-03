@@ -3,10 +3,12 @@
 ## What this project is
 
 A Tauri (Rust backend + vanilla TypeScript frontend, no framework) desktop app for managing
-knowledge libraries against **knowledge-api** — create libraries, upload documents, configure the
-embeddings provider, and browse everything. It authenticates to knowledge-api as a registered
-OAuth2 Application (see knowledge-api's CLAUDE.md for the auth model), the same way the MCP server
-does, just with a broader scope since this is the admin/management UI, not a narrow search client.
+knowledge libraries against **knowledge-api** — create libraries, upload documents, and browse
+everything. It authenticates to knowledge-api as a registered OAuth2 Application (see
+knowledge-api's CLAUDE.md for the auth model), the same way the MCP server does, just with a
+broader scope since this is the admin/management UI, not a narrow search client. Embeddings
+provider config and search-tuning settings used to live here too (an "Embeddings" sidebar page);
+both moved to knowledge-api's own `/dashboard` — see session history item 9.
 
 Key modules: `src/main.ts` (all page logic/DOM wiring), `src/shell.ts` (window chrome + sidebar
 nav, deliberately decoupled from page logic — announces view switches via a `view-changed`
@@ -52,6 +54,17 @@ endpoint, all routed through a shared `send_with_retry` helper for auth-header +
    plus auto-refresh whenever the Configuration tab is opened — solves "I started the desktop app
    before the API's Docker container, and there was no way to reconnect short of a full restart."
    Both reuse one `refreshConnection()` (replacing logic that used to only run once, in `init()`).
+9. **Embeddings page removed**: the "Embeddings" sidebar page (provider/model/dimensions/
+   chunk-size config, plus a "Search Settings" card for hybrid-retrieval tuning that had ridden
+   along on the same page) was deleted entirely — both are moving to knowledge-api's own
+   `/dashboard` instead. Removed: the sidebar nav item and `view-embeddings` section
+   (`index.html`); all embeddings/search-settings state, gating, and form-handling code in
+   `main.ts` (including `refreshConnection()`, folded into `checkStatusAndLoad()` since nothing
+   else was left in it); the `get_embedding_options`/`list_embedding_models`/
+   `get_embedding_settings`/`save_embedding_settings`/`clear_embedding_settings`/
+   `get_search_settings`/`save_search_settings` Tauri commands (`api_client.rs`, `lib.rs`); and the
+   corresponding `embedding_settings:*`/`search_settings:*` scopes from `KNOWLEDGE_STORE_SCOPE`
+   (`oauth_client.rs`) — this app no longer requests or touches either resource.
 
 ## Not yet done / things to know for next session
 
