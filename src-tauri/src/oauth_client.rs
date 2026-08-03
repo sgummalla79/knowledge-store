@@ -7,9 +7,8 @@ use tauri::AppHandle;
 
 // Requested on every client_credentials exchange — Knowledge Store is the admin/management UI, so
 // unlike mcp_server's narrow libraries:read+query:execute grant, it needs close to everything.
-const KNOWLEDGE_STORE_SCOPE: &str = "libraries:read libraries:write documents:read documents:write \
-    query:execute embedding_settings:read embedding_settings:write search_settings:read \
-    search_settings:write offline_access";
+const KNOWLEDGE_STORE_SCOPE: &str =
+    "libraries:read libraries:write documents:read documents:write query:execute offline_access";
 
 // Refresh a bit before the JWT's real expiry so a request never starts with an about-to-expire token.
 const EXPIRY_SAFETY_MARGIN_SECONDS: u64 = 30;
