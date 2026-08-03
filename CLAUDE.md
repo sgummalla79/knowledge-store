@@ -154,21 +154,44 @@ release: **1.0.0**, tracked on branch `releases/v1`.
 
 **Branch model:** each major version gets a long-lived `releases/vN` branch (currently just
 `releases/v1`; a future breaking/major change gets `releases/v2` cut from `master` the same way).
-`releases/v1` is the active working branch — **all day-to-day work happens there**, not on
-`master`. `master` only moves via merges/cherry-picks from a release branch; it's the stable
-lineage release branches are cut from, not where work originates.
 
-**Bug-fix workflow — follow this exactly, every fix, no exceptions:**
-1. Branch off the relevant `releases/vN` branch (e.g. `releases/v1`) for the fix.
-2. Fix the bug on that branch.
-3. Before committing the fix, bump the **patch** number (`X.Y.Z` → `X.Y.Z+1`) in all four version
-   locations (`VERSION`, `package.json`, `Cargo.toml`, `tauri.conf.json`) and include that bump in
-   the same commit as the fix. Minor (`Y`) and major (`X`) are not touched by routine bug fixes —
-   minor is for new features, major is for breaking changes.
-4. Push the fix branch and test it.
-5. Once verified, merge the fix branch into `releases/vN`.
-6. Cherry-pick the fix commit (version bump included) from `releases/vN` onto `master`, so
-   `master` always carries every shipped fix even though it isn't itself a release branch.
+**Never commit directly to `releases/v1` or `master` — no exceptions.** Both are GitHub
+branch-protected (PR required, direct pushes rejected by GitHub itself, not just a convention) —
+see "Branch protection" below. All work, fixes and features alike, happens on a short-lived branch
+cut from `releases/v1`, opened as a PR back into `releases/v1`, and merged once verified. `master`
+only moves via PR/cherry-pick from a release branch; nothing originates there.
+
+**Workflow — follow this exactly, every change, no exceptions:**
+1. Branch off `releases/v1` (or the relevant `releases/vN`) for the change.
+2. Make the change on that branch.
+3. Before committing, if it's a bug fix, bump the **patch** number (`X.Y.Z` → `X.Y.Z+1`) in all
+   four version locations (`VERSION`, `package.json`, `Cargo.toml`, `tauri.conf.json`) and include
+   that bump in the same commit as the fix. Minor (`Y`) is for new features, major (`X`) is for
+   breaking changes — routine bug fixes touch neither.
+4. Push the branch, open a PR into `releases/vN`, and test it.
+5. Once verified, merge the PR into `releases/vN`.
+6. Cherry-pick the fix commit (version bump included) from `releases/vN` onto a new branch cut
+   from `master`, then open a PR from that branch into `master` (it's protected too — no direct
+   push, see below). Merge once green, so `master` always carries every shipped fix even though
+   it isn't itself a release branch.
+
+## Branch protection
+
+`master` and `releases/v1` (and any future `releases/vN`) are GitHub branch-protected:
+direct pushes are rejected, changes must go through a PR. No required approvals are configured
+(solo repo — self-merge is fine), but force-pushes and deletions of these branches are also
+blocked. If a new `releases/vN` branch is ever cut, apply the same protection to it immediately —
+it doesn't inherit automatically:
+```bash
+gh api -X PUT repos/sgummalla79/knowledge-store/branches/<branch>/protection \
+  -H "Accept: application/vnd.github+json" \
+  -f required_status_checks='null' \
+  -f enforce_admins=true \
+  -f required_pull_request_reviews.required_approving_review_count=0 \
+  -f restrictions='null' \
+  -f allow_force_pushes=false \
+  -f allow_deletions=false
+```
 
 ## Bundle identifier
 
