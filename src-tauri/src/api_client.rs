@@ -88,28 +88,6 @@ pub async fn authenticate(app: AppHandle, tokens: State<'_, TokenState>) -> Resu
 }
 
 #[tauri::command]
-pub async fn get_embedding_options(app: AppHandle, tokens: State<'_, TokenState>) -> Result<Value, String> {
-    let cfg = config::load_config(&app);
-    let url = format!("{}/embedding-options", cfg.api_base_url);
-    let response = send_with_retry(&app, &tokens, &cfg, |name, value| client().get(&url).header(name, value)).await?;
-    map_response(response).await
-}
-
-/// Live, credentialed call — queries the provider itself (via knowledge-api) for its actual
-/// available models, using an api_key/base_url the user may not have saved yet. Not cached
-/// server-side; rate-limited to 10/min there, so the frontend debounces before calling this.
-#[tauri::command]
-pub async fn list_embedding_models(app: AppHandle, payload: Value, tokens: State<'_, TokenState>) -> Result<Value, String> {
-    let cfg = config::load_config(&app);
-    let url = format!("{}/embedding-options/models", cfg.api_base_url);
-    let response = send_with_retry(&app, &tokens, &cfg, |name, value| {
-        client().post(&url).header(name, value).json(&payload)
-    })
-    .await?;
-    map_response(response).await
-}
-
-#[tauri::command]
 pub async fn list_libraries(app: AppHandle, tokens: State<'_, TokenState>) -> Result<Value, String> {
     let cfg = config::load_config(&app);
     let url = format!("{}/libraries", cfg.api_base_url);
@@ -307,48 +285,3 @@ pub async fn get_job_status(
     map_response(response).await
 }
 
-#[tauri::command]
-pub async fn get_embedding_settings(app: AppHandle, tokens: State<'_, TokenState>) -> Result<Value, String> {
-    let cfg = config::load_config(&app);
-    let url = format!("{}/embedding-settings", cfg.api_base_url);
-    let response = send_with_retry(&app, &tokens, &cfg, |name, value| client().get(&url).header(name, value)).await?;
-    map_response(response).await
-}
-
-#[tauri::command]
-pub async fn save_embedding_settings(app: AppHandle, payload: Value, tokens: State<'_, TokenState>) -> Result<Value, String> {
-    let cfg = config::load_config(&app);
-    let url = format!("{}/embedding-settings", cfg.api_base_url);
-    let response = send_with_retry(&app, &tokens, &cfg, |name, value| {
-        client().put(&url).header(name, value).json(&payload)
-    })
-    .await?;
-    map_response(response).await
-}
-
-#[tauri::command]
-pub async fn clear_embedding_settings(app: AppHandle, tokens: State<'_, TokenState>) -> Result<Value, String> {
-    let cfg = config::load_config(&app);
-    let url = format!("{}/embedding-settings", cfg.api_base_url);
-    let response = send_with_retry(&app, &tokens, &cfg, |name, value| client().delete(&url).header(name, value)).await?;
-    map_response(response).await
-}
-
-#[tauri::command]
-pub async fn get_search_settings(app: AppHandle, tokens: State<'_, TokenState>) -> Result<Value, String> {
-    let cfg = config::load_config(&app);
-    let url = format!("{}/search-settings", cfg.api_base_url);
-    let response = send_with_retry(&app, &tokens, &cfg, |name, value| client().get(&url).header(name, value)).await?;
-    map_response(response).await
-}
-
-#[tauri::command]
-pub async fn save_search_settings(app: AppHandle, payload: Value, tokens: State<'_, TokenState>) -> Result<Value, String> {
-    let cfg = config::load_config(&app);
-    let url = format!("{}/search-settings", cfg.api_base_url);
-    let response = send_with_retry(&app, &tokens, &cfg, |name, value| {
-        client().put(&url).header(name, value).json(&payload)
-    })
-    .await?;
-    map_response(response).await
-}

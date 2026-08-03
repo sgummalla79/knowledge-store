@@ -1288,7 +1288,7 @@ textarea:disabled {
   margin-top: 10px;
 }
 
-/* Status banners (Knowledge page: connection/embeddings state) */
+/* Status banners (Knowledge page: connection state) */
 
 .banner {
   display: flex;

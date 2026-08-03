@@ -14,8 +14,6 @@ pub fn run() {
             api_client::save_config,
             api_client::authenticate,
             api_client::disconnect,
-            api_client::get_embedding_options,
-            api_client::list_embedding_models,
             api_client::list_libraries,
             api_client::create_library,
             api_client::update_library,
@@ -30,11 +28,6 @@ pub fn run() {
             api_client::get_file_size,
             api_client::upload_document,
             api_client::get_job_status,
-            api_client::get_embedding_settings,
-            api_client::save_embedding_settings,
-            api_client::clear_embedding_settings,
-            api_client::get_search_settings,
-            api_client::save_search_settings,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
